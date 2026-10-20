@@ -9,7 +9,7 @@ import uuid
 from fastapi import HTTPException
 
 from . import repository as r
-from .project_sources import ProjectSourceService, normalized_ranges, range_key
+from .project_sources import ProjectSourceService, normalized_ranges
 
 
 def digest(body):

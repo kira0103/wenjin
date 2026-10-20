@@ -22,25 +22,6 @@
 .kb-paper-table td:first-child { min-width: 210px; max-width: 360px; overflow-wrap: anywhere; }
 .kb-import-row { border: 1px solid var(--line); border-radius: 6px; margin: 14px 0; padding: 12px; }
 .settings-hub-tabs { display: flex; flex-wrap: wrap; gap: 10px; padding-bottom: 0; }
-.kb-library-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:22px;align-items:start}
-.kb-library-content{min-width:0}
-.kb-categories{position:sticky;top:12px;background:var(--surface,var(--tone-191c23));border:1px solid var(--line,var(--tone-333743));border-radius:12px;padding:12px;max-height:calc(100vh - 180px);overflow:auto}
-.kb-category-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
-.kb-category-heading h2{font-size:16px;margin:0}
-.kb-category-row{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;width:100%;padding:10px 8px;border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer;overflow-wrap:anywhere}
-.kb-category-row small{opacity:.65;font-size:11px}
-.kb-category-row:hover{background:var(--surface-2,var(--tone-20232c))}
-.kb-category-row.is-selected{background:var(--tone-302b46);color:var(--tone-e4dfff)}
-.kb-category-actions{border-top:1px solid var(--line,var(--tone-333743));margin-top:12px;padding-top:12px}
-.kb-category-actions .action-row{flex-wrap:wrap;gap:2px;margin-top:6px}
-.kb-category-actions button{padding:6px;font-size:12px}
-.kb-category-scope{font-weight:600;margin:0 0 14px;color:var(--muted,var(--tone-a6aab7))}
-.kb-category-choices{display:flex;flex-direction:column;gap:10px;max-height:300px;overflow:auto;margin:12px 0}
-.kb-work-classification{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:5px 0}
-.kb-work-classification small{color:var(--tone-b7acd9);overflow-wrap:anywhere}
-.kb-bulk-categories{padding:10px 0;border-bottom:1px solid var(--line,var(--tone-333743));margin-bottom:12px;flex-wrap:wrap}
-@media(max-width:1050px){.kb-library-layout{grid-template-columns:190px minmax(0,1fr);gap:12px}}
-@media(max-width:760px){.kb-library-layout{grid-template-columns:1fr}.kb-categories{position:static;max-height:300px}}
 .kb-file-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:22px;align-items:start}
 .kb-file-groups{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px;position:sticky;top:12px;max-height:75vh;overflow:auto}
 .kb-file-groups h2{font-size:15px;margin:0 0 15px}

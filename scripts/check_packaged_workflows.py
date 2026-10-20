@@ -15,6 +15,7 @@ from backend.knowledge.migration import upgrade
 
 def main():
     project=Path(__file__).resolve().parents[1];folder=project/'.local'/'knowledge'
+    binary=project/'build/backend/ShixueWorkbenchService/ShixueWorkbenchService.exe'
     passwords={name:(folder/(name+'_password')).read_text().strip() for name in ('admin','owner','app')}
     database='shixue_kb_test_'+uuid.uuid4().hex
     admin=psycopg.connect(host='127.0.0.1',port=55432,dbname='shixue_knowledge',user='shixue_admin',password=passwords['admin'],autocommit=True)
@@ -33,7 +34,7 @@ def main():
         environment={**os.environ,'SHIXUE_KB_DATABASE_URL':owner.set(username='shixue_app',password=passwords['app']).render_as_string(hide_password=False),
                      'SHIXUE_KB_MODEL_CACHE':str(Path(os.environ['APPDATA'])/'shixue-workbench'/'models')}
         with tempfile.TemporaryDirectory(prefix='kb-exe-full-') as directory:
-            process=subprocess.Popen([str(project/'build'/'backend'/'ShixueWorkbenchService.exe'),'--port',str(port),'--data-dir',directory,'--token',token],
+            process=subprocess.Popen([str(binary),'--port',str(port),'--data-dir',directory,'--token',token],
                 env=environment,creationflags=subprocess.CREATE_NO_WINDOW,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             with httpx.Client(base_url=f'http://127.0.0.1:{port}',headers={'X-App-Token':token},timeout=90) as client:
                 for _ in range(150):
@@ -85,7 +86,7 @@ def main():
                 admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(restore_database)))
                 restore_environment={**environment,'SHIXUE_KB_RESTORE_URL':owner.set(username='shixue_admin',password=passwords['admin'],database=restore_database).render_as_string(hide_password=False)}
                 destination=Path(directory)/'restored'
-                restored=subprocess.run([str(project/'build'/'backend'/'ShixueWorkbenchService.exe'),'--restore-bundle',str(bundle),'--restore-target',str(destination)],
+                restored=subprocess.run([str(binary),'--restore-bundle',str(bundle),'--restore-target',str(destination)],
                     env=restore_environment,creationflags=subprocess.CREATE_NO_WINDOW,capture_output=True,timeout=100)
                 assert restored.returncode==0 and (destination/'library.sqlite').is_file(),'打包恢复失败'
                 print('Packaged full workflows passed: TXT ingestion, local embeddings, Chinese OCR, validated streaming RAG, backup and native EXE restore')

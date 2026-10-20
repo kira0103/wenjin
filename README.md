@@ -84,7 +84,7 @@ npm run dist:candidate
 | `backend/migrations/` | PostgreSQL 结构迁移，升级旧库所需 |
 | `tests/` | Python 与桌面路径测试；前端测试也位于 `src/` |
 | `deployment/` | 数据库初始化与固定摘要的运行时依赖清单 |
-| `scripts/` | 构建、检查及历史版本验收工具 |
+| `scripts/` | 构建、数据检查与隔离桌面验收工具，见[脚本说明](scripts/README.md) |
 | `docs/` | 面向仓库使用者的开发与维护文档 |
 
 更多架构关系见 [CODEBASE.md](CODEBASE.md)，协作约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。

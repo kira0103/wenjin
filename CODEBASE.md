@@ -4,7 +4,7 @@
 
 `electron/main.cjs` 负责窗口、工作区选择、Python 服务生命周期和 IPC；`preload.cjs` 只暴露受控桌面能力。后端绑定本机地址，桌面生成每次启动的请求令牌。
 
-`src/workbench/App.tsx` 组织导航、项目工作区和助手面板。`LibraryViews.tsx`、`ResearchViews.tsx`、`BatchViews.tsx`、`SubmissionWorkbench.tsx` 分别承载资料、研究、点校批次和投稿工作。`src/workbench/knowledge/` 包含统一文献库、核心古籍、检索与助手；当前目录入口由 `DocumentBrowser.tsx` 承载。
+`src/workbench/App.tsx` 组织导航、项目工作区和助手面板。`LibraryViews.tsx` 只保留历史来源阅读器和共享显示名称；当前项目材料页为 `knowledge/ProjectLibrary.tsx`，全局目录入口为 `knowledge/DocumentBrowser.tsx`。`ResearchViews.tsx`、`BatchViews.tsx`、`SubmissionWorkbench.tsx` 分别承载研究、点校批次和投稿。`knowledge/UnclassifiedCatalog.tsx` 供设置页核对历史待归类书目。
 
 ## 后端与持久化
 
@@ -31,4 +31,4 @@
 
 `npm test` 执行 `src/` 内 Vitest 测试和 `tests/workspace_path.test.cjs`。Python 单元测试用 `unittest discover`，有环境依赖的数据库测试默认跳过。集成验证使用独立测试库，不应指向真实工作区。
 
-`scripts/` 中 `fetch_managed_build_inputs.py` 和 `prepare_managed_runtime.py` 用于构建数据库运行时。`prepare_*candidate.py`、`seal_*candidate.py` 和部分 `check_*` 是历史候选包的迁移或验收工具，依赖指定版本发布目录、本地报告或内部文档，不属于全新克隆的启动流程；不能当作通用升级命令批量运行。
+`scripts/` 中 `fetch_managed_build_inputs.py` 和 `prepare_managed_runtime.py` 用于构建数据库运行时。当前桌面验收以 `check_project_shell_gui.cjs` 为入口，使用独立工作区和模拟模型。旧候选版的重复检查、一次性升级和封包脚本已移除，需要追溯时查看 Git 历史；保留工具的用途和前置条件见 [scripts/README.md](scripts/README.md)。

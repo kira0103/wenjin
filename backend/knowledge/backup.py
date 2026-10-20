@@ -15,7 +15,6 @@ from sqlalchemy import text
 
 from . import repository as r
 from .audit import read_only
-from .database import SCHEMA_REVISION
 
 
 def workspace_key(root):

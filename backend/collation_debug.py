@@ -1,5 +1,5 @@
 """One-request collation experiments. No manuscript writes and no automatic retry."""
-import json,secrets,sqlite3,threading,time
+import json,sqlite3,threading,time
 from pathlib import Path
 from contextlib import closing
 from fastapi import HTTPException

@@ -51,6 +51,6 @@ Electron 打包需要 `build/backend/ShixueWorkbenchService/` 与 `build/postgre
 
 ## 本机脚本与数据
 
-`scripts/` 保留历史候选包验收工具，可能引用已被 Git 忽略的旧发布包、报告和内部验收文档。它们服务于特定版本复核，不能代替上述通用开发流程。
+`scripts/` 已移除过期候选版的重复检查和一次性迁移工具。当前桌面回归使用独立工作区，发布验证仍需对应的构建产物和报告；各入口的前置条件见[脚本说明](../scripts/README.md)。脚本不是应用运行时的依赖。
 
 根目录既有的历史设计与验收 Markdown 在本机保留，默认不纳入仓库。旧 README、代码导航和删除的冗余文件在本机 `.local/publish-backup/` 中留有副本。新公开说明统一维护在仓库文档中。

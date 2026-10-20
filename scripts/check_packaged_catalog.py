@@ -10,7 +10,7 @@ import hashlib
 
 def main():
     project=Path(__file__).resolve().parents[1]
-    binary=Path(os.environ.get('SHIXUE_CATALOG_BINARY',str(project/'build/backend/ShixueWorkbenchService.exe')))
+    binary=Path(os.environ.get('SHIXUE_CATALOG_BINARY',str(project/'build/backend/ShixueWorkbenchService/ShixueWorkbenchService.exe')))
     environment={**os.environ,'SHIXUE_KB_MODEL_CACHE':str(Path(os.environ['APPDATA'])/'shixue-workbench/models')}
     environment.pop('SHIXUE_KB_DATABASE_URL',None);environment.pop('SHIXUE_KB_RESTORE_URL',None)
     with tempfile.TemporaryDirectory(prefix='文献库 打包迁移-') as folder:

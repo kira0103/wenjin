@@ -6,7 +6,6 @@ import hashlib
 import io
 import json
 import re
-import sqlite3
 import unicodedata
 import uuid
 from datetime import date, datetime, timezone
@@ -20,7 +19,6 @@ from pydantic import BaseModel, Field, field_validator
 HEADERS = ('期刊名称', '学科门类', '期刊等级', '官网', '投稿地址')
 SEED = Path(__file__).parent / 'data' / 'CSSCI_2025-2026.csv'
 SEED_LABEL = 'CSSCI 2025–2026（用户提供目录）'
-STATES = ('writing', 'ready', 'review', 'revision', 'accepted', 'published', 'rejected')
 
 
 def now():

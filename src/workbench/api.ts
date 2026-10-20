@@ -2,7 +2,6 @@ export type ProjectType = 'general' | 'collation' | 'literature' | 'translation'
 export type Project = { id: string; name: string; description: string; project_type: ProjectType; rules: string; archived?: number; material_count?: number };
 export type MaterialRole = 'base' | 'witness' | 'citation' | 'reference' | 'auxiliary';
 export type Material = { id: string; project_id: string; project_ids?: string[]; entry_id?: string; file_format?: string; position_kind?: 'page' | 'section'; roles?: MaterialRole[]; witness_label?: string; scope_note?: string; item_type?: string; version_label?: string; filename: string; title: string; page_count: number; extraction_coverage: number; reference_count?: number; created_at: string };
-export type BookItem = { id: string; title: string; authors: string; year: string; raw_reference: string; item_type?: string; version_label?: string; genre?: string; material_ids?: string[]; project_ids?: string[]; project_roles?: Record<string, MaterialRole[]>; source_material_id?: string | null; created_at: string };
 export type RefItem = { id: string; ordinal: number; raw_text: string; title: string; authors: string; year: string; page_number: number; match_id?: string | null; match_status: string; matched_title?: string; matched_authors?: string; matched_year?: string; matched_reference?: string };
 export type MaterialDetail = Material & { kind?: string; edition_id?: string; source_revision?: string; source_revision_changed?: boolean|null; source_positions?: {asset_id?: string; page_index?: number; number: number; missing?: boolean}[]; pages: { page_number: number; text: string }[]; references: RefItem[]; reference_summary: { total: number; in_library: number; missing: number; version_unverified: number } };
 export type TaskKind = 'translate' | 'summary' | 'punctuate' | 'proofread';
@@ -29,10 +28,7 @@ export async function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 
 
 export const api = {
   bootstrap: (projectId: string) => request<Bootstrap>(`/api/bootstrap?project_id=${encodeURIComponent(projectId)}`),
-  materials: (projectId: string, query = '') => request<Material[]>(`/api/materials?project_id=${encodeURIComponent(projectId)}&query=${encodeURIComponent(query)}`),
   material: (id: string) => request<MaterialDetail>(`/api/materials/${encodeURIComponent(id)}`),
-  library: () => request<BookItem[]>('/api/library-items'),
-  updateBook: (book: BookItem) => request<BookItem>(`/api/library/${encodeURIComponent(book.id)}`, 'PUT', book),
   importDocument: (data: ArrayBuffer, filename: string, projectId?: string, role = 'reference', entryId?: string) => request<Material & { duplicate: boolean }>(`/api/materials/import?filename=${encodeURIComponent(filename)}&role=${encodeURIComponent(role)}${projectId ? `&project_id=${encodeURIComponent(projectId)}` : ''}${entryId ? `&entry_id=${encodeURIComponent(entryId)}` : ''}`, 'POST', data, 'application/octet-stream'),
   createProject: (config: Partial<Project> & { name: string }) => request<Project>('/api/projects', 'POST', config),
   configureProject: (project: Project) => request<Project>(`/api/projects/${project.id}`, 'PUT', project),
@@ -40,11 +36,6 @@ export const api = {
   deleteProject: (id: string, confirmation: string, preview_token: string) => request<{ next_project_id: string; cleanup_errors: string[] }>(`/api/projects/${id}`, 'DELETE', { confirmation, preview_token }),
   archiveProject: (id: string) => request(`/api/projects/${id}/archive`, 'POST', {}),
   restoreProject: (id: string) => request(`/api/projects/${id}/restore`, 'POST', {}),
-  saveEntry: (entry: Partial<BookItem> & { title: string }) => request(`/api/library-items${entry.id ? `/${entry.id}` : ''}`, entry.id ? 'PUT' : 'POST', entry),
-  linkMaterial: (projectId: string, materialId: string, config: { roles: MaterialRole[]; witness_label?: string; scope_note?: string }) => request(`/api/projects/${projectId}/materials/${materialId}`, 'PUT', config),
-  unlinkMaterial: (projectId: string, materialId: string) => request(`/api/projects/${projectId}/materials/${materialId}`, 'DELETE'),
-  linkEntry: (projectId: string, entryId: string, roles: MaterialRole[]) => request(`/api/projects/${projectId}/library-items/${entryId}`, 'PUT', { roles }),
-  unlinkEntry: (projectId: string, entryId: string) => request(`/api/projects/${projectId}/library-items/${entryId}`, 'DELETE'),
   createUnit: (projectId: string, config: object) => request<ResearchUnit>(`/api/projects/${projectId}/units`, 'POST', config),
   unit: (id: string) => request<ResearchUnit>(`/api/units/${id}`),
   saveUnit: (unit: ResearchUnit, status = unit.status, confirm = false) => request<ResearchUnit>(`/api/units/${unit.id}`, 'PUT', { expected_revision: unit.revision, content: unit.content || '', notes: unit.notes, status, confirm_review: confirm }),
@@ -54,10 +45,8 @@ export const api = {
   createTask: (payload: object) => request<WorkTask>('/api/tasks', 'POST', payload),
   task: (id: string) => request<WorkTask>(`/api/tasks/${id}`),
   resumeTask: (id: string) => request(`/api/tasks/${id}/resume`, 'POST', {}),
-  settings: () => request<ModelSettings>('/api/settings'),
   saveSettings: (settings: ModelSettings & { api_key?: string }) => request<ModelSettings>('/api/settings', 'PUT', settings),
   testConnection: () => request<{ ok: boolean; model: string }>('/api/settings/test', 'POST', {}),
-  pdf: (id: string) => window.desktop.request({ path: `/api/materials/${id}/file` }),
   artifacts: (projectId: string) => request<WorkArtifact[]>(`/api/artifacts?project_id=${encodeURIComponent(projectId)}`),
 };
 

@@ -14,7 +14,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from . import repository as r
 from .audit import read_only
 from .backup import pg_command
-from .catalog import CatalogService
 from .ingestion import publish
 from .project_sources import ProjectSourceService
 from .execution import activated

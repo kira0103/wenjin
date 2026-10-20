@@ -359,14 +359,6 @@ def event(db, now, batch_id, message, item_id='',chunk_id='',attempt_id='',level
                (batch_id,item_id,chunk_id,attempt_id,level,message[:3000],now()))
 
 
-def add_notes(existing, additions, marker):
-    # Preserve human records. An overflow is visible and links to the full report.
-    combined = list(existing)+list(additions)
-    if len(combined) <= 500:
-        return combined
-    return combined[:499]+[{'id':marker+'-overflow','kind':'question','location':'完整复核报告','base_reading':'','witness_id':'','witness_reading':'',
-                            'decision':'','evidence':f'另有 {len(combined)-499} 项；请查看本文件批量点校完整报告及底本问题后复核。','status':'pending'}]
-
 class Hold(Exception):
     pass
 

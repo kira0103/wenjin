@@ -13,7 +13,7 @@ from sqlalchemy import URL
 
 def main():
     project = Path(__file__).resolve().parents[1]
-    binary = project / 'build' / 'backend' / 'ShixueWorkbenchService.exe'
+    binary = project / 'build' / 'backend' / 'ShixueWorkbenchService' / 'ShixueWorkbenchService.exe'
     password = (project / '.local' / 'knowledge' / 'app_password').read_text().strip()
     url = URL.create('postgresql+psycopg', username='shixue_app', password=password,
                      host='127.0.0.1', port=55432, database='shixue_knowledge')

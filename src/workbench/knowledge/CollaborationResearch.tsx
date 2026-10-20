@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { request } from '../api';
 import type { AssistantDefinition } from './AssistantManagement';
 import LibraryScopePicker,{hasLibraryScope} from './LibraryScopePicker';
-import type { CategoryFilter } from './LiteratureCategories';
+import type { LibraryScope } from './documentTypes';
 import MarkdownPreview from './MarkdownPreview';
 
 type Source={evidence_id:string;anchor_id:string;quote:string;locator:{title:string;edition_label:string;asset_id:string;page_index:number};context_role:string};
@@ -12,10 +12,10 @@ type Team={id:string;question:string;state:string;outcome:string;progress:number
 const labels:Record<string,string>={pending:'等待依赖',queued:'排队中',running:'研究中',succeeded:'已完成',failed:'执行失败',cancelled:'已停止',blocked:'上游未完成',skipped:'已跳过',partial:'部分完成',complete:'完整完成',completed:'已完成',interrupted:'已中断'};
 const roles=[['classic','古籍证据助手','classic-researcher'],['paper','论文分析助手','paper-researcher'],['general','其他文献助手','research-coordinator'],['review','证据复核助手','evidence-reviewer'],['writer','综合写作助手','research-writer']];
 
-export default function CollaborationResearch({editions,projectId,onOpenSource,onSaveNote,onSettings,initialQuery,initialEdition,initialFilter,embedded}:{embedded?:boolean;editions:{id:string;title:string;label:string}[];projectId:string;initialQuery?:string;initialEdition?:string;initialFilter?:CategoryFilter;
+export default function CollaborationResearch({editions,projectId,onOpenSource,onSaveNote,onSettings,initialQuery,initialEdition,initialFilter,embedded}:{embedded?:boolean;editions:{id:string;title:string;label:string}[];projectId:string;initialQuery?:string;initialEdition?:string;initialFilter?:LibraryScope;
   onOpenSource(id:string,asset?:string,page?:number):Promise<void>;onSaveNote(question:string,body:string,sources:Source[],run?:{kind:'research'|'collaboration';id:string}):void;onSettings():void}) {
   const [query,setQuery]=useState(initialQuery||((embedded&&readQuestion('assistant-team-question-'+projectId))||'')),[scope,setScope]=useState(embedded?'project':'edition'),[edition,setEdition]=useState(editions[0]?.id||''),[workflow,setWorkflow]=useState('compare');
-  const [libraryFilter,setLibraryFilter]=useState<CategoryFilter>(initialFilter||{});
+  const [libraryFilter,setLibraryFilter]=useState<LibraryScope>(initialFilter||{});
   const [budget,setBudget]=useState(180000),[rounds,setRounds]=useState(6),[agents,setAgents]=useState<AssistantDefinition[]>([]),[bindings,setBindings]=useState<Record<string,string>>({});
   const [parallel,setParallel]=useState(2);
   useEffect(()=>{if(initialQuery!==undefined)setQuery(initialQuery);if(initialFilter)setLibraryFilter(initialFilter);if(hasLibraryScope(initialFilter)){setScope('library');if(initialEdition)setEdition(initialEdition);}else if(initialEdition){setEdition(initialEdition);setScope('edition');}else if(initialFilter){setScope(initialFilter.project_id?'project':'all');}},[initialQuery,initialEdition,initialFilter]);

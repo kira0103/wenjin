@@ -11,7 +11,6 @@ from typing import Literal
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-PROJECT_TYPES = {'general', 'collation', 'literature', 'translation'}
 ROLES = {'base', 'witness', 'citation', 'reference', 'auxiliary'}
 
 

@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),net=require('node:net'),crypto=require('node:crypto');
 const {spawn}=require('node:child_process');
 const project=path.resolve(__dirname,'..'),output=path.join(project,'.local','shell-rc12');
-const guiFile=path.join(output,'packaged-gui-report.json');const gui=JSON.parse(fs.readFileSync(fs.existsSync(guiFile)?guiFile:path.join(project,'.local','folders-rc10','packaged-gui-report.json'),'utf8'));
+const guiFile=path.join(output,'packaged-gui-report.json');const gui=JSON.parse(fs.readFileSync(guiFile,'utf8'));
 const root=process.env.SHIXUE_TEST_DATA_ROOT?path.resolve(process.env.SHIXUE_TEST_DATA_ROOT):gui.root,binary=path.join(project,'release','v0.5.0-rc.12','win-unpacked','史学工作台候选版.exe');
 const scratch=path.join(output,'bootstrap-'+crypto.randomUUID());fs.mkdirSync(scratch);
 const config=path.join(scratch,'bootstrap.json');fs.writeFileSync(config,JSON.stringify({format:1,dataDir:root}));

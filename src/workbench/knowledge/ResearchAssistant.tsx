@@ -2,7 +2,7 @@ import { readQuestion } from './assistantDrafts';
 import { useEffect, useState } from 'react';
 import { request } from '../api';
 import LibraryScopePicker,{hasLibraryScope} from './LibraryScopePicker';
-import type { CategoryFilter } from './LiteratureCategories';
+import type { LibraryScope } from './documentTypes';
 import MarkdownPreview from './MarkdownPreview';
 import RetrievalDiagnostics from './RetrievalDiagnostics';
 import CollaborationResearch from './CollaborationResearch';
@@ -18,7 +18,7 @@ const labels:Record<string,string>={queued:'排队中',running:'研究中',succe
   model:'请求模型',search:'检索',read:'阅读',list:'查找文献',finish:'结束补查',completed:'已完成',interrupted:'已中断',skills:'加载角色与研究方法'};
 
 type Props={embedded?:boolean;editions:Edition[];projectId:string;onOpenSource(id:string,asset?:string,page?:number):Promise<void>;onSaveNote(question:string,body:string,sources:Source[],run?:{kind:'research'|'collaboration';id:string}):void;onSettings():void;
-  initialQuery?:string;initialEdition?:string;initialFilter?:CategoryFilter;trial?:{id:string;version:string;editVersion?:number;runId?:string}|null;onClearTrial?():void};
+  initialQuery?:string;initialEdition?:string;initialFilter?:LibraryScope;trial?:{id:string;version:string;editVersion?:number;runId?:string}|null;onClearTrial?():void};
 export default function ResearchAssistant(props:Props){
   const [mode,setMode]=useState<'single'|'team'>('single');
   useEffect(()=>{if(props.trial)setMode('single');},[props.trial]);
@@ -28,7 +28,7 @@ export default function ResearchAssistant(props:Props){
 
 function SingleResearchAssistant({editions,projectId,onOpenSource,onSaveNote,onSettings,trial,onClearTrial,initialQuery,initialEdition,initialFilter,embedded}:Props) {
   const [query,setQuery]=useState(initialQuery||((embedded&&readQuestion('assistant-question-'+projectId))||'')),[scope,setScope]=useState(embedded?'project':'edition'),[edition,setEdition]=useState(initialEdition||editions[0]?.id||'');
-  const [libraryFilter,setLibraryFilter]=useState<CategoryFilter>(initialFilter||{});
+  const [libraryFilter,setLibraryFilter]=useState<LibraryScope>(initialFilter||{});
   const [rounds,setRounds]=useState(8),[budget,setBudget]=useState(60000),[task,setTask]=useState('answer');
   const [runs,setRuns]=useState<Run[]>([]),[selected,setSelected]=useState(''),[run,setRun]=useState<Run|null>(null);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[trace,setTrace]=useState<string|null>(null);

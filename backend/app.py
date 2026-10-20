@@ -23,7 +23,6 @@ def startup_progress(stage):
 
 startup_progress('imports')
 
-import pymupdf as fitz
 import httpx
 import keyring
 import uvicorn
@@ -176,10 +175,6 @@ def initialize(root: Path):
         research_results.migrate(db)
         # Interrupted tasks are durable. Leave them visible with a recovery message.
         db.execute("UPDATE tasks SET status='paused', error='工作台上次退出时任务未完成，可重新发起处理。', updated_at=? WHERE status IN ('running','queued')", (utc_now(),))
-
-
-def row_dict(row):
-    return dict(row) if row else None
 
 
 def title_from_text(filename: str, text: str) -> str:
@@ -792,14 +787,6 @@ def test_model_connection():
     settings = read_model_settings()
     generate_text({"task_type": "translate", "instructions": "只回复连接成功", "target_language": "中文"}, "Connection test.", settings)
     return {"ok": True, "model": settings["model"]}
-
-
-class WorkflowState(TypedDict, total=False):
-    task_id: str
-    source_text: str
-    source_context: dict
-    result: str
-    error: str
 
 
 def execute_workflow(task_id: str):

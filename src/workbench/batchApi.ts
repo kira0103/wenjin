@@ -1,4 +1,4 @@
-import { request, type ResearchUnit } from './api';
+import { request } from './api';
 export type BatchStatus = 'queued' | 'running' | 'pausing' | 'paused' | 'interrupted' | 'stopping' | 'stopped' | 'completed' | 'completed_with_errors';
 export type Batch = { id: string; project_id: string; run_id: string; title: string; status: BatchStatus; created_at: string; started_at: string; finished_at: string; error: string; model: { model: string; provider_name: string; currency?: string; price_date?: string }; total: number; ended: number; counts: { queued: number; running: number; done: number; failed: number; stopped: number }; usage: { requests: number; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; input_reported: number; output_reported: number; total_reported: number; unknown_requests: number; in_flight: number }; current: { id: string; title: string; chunks: number; completed_chunks: number; stage: string; waiting_seconds: number } | null; pending_review: number; needs_merge: number; approved: number; reused_chunks: number; elapsed_seconds: number; estimated_remaining_seconds: number | null; estimated_cost: number | null; cost_note: string };
 export type BatchFile = { has_text_changes?: boolean; id: string; seq: number; title: string; status: 'queued' | 'running' | 'done' | 'failed' | 'stopped'; merge_status: string; unit_id: string; error: string; finished_at: string; chars: number; chunks: number; completed_chunks: number; completed_chars: number; requests: number; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; pending_questions: number };
@@ -24,7 +24,6 @@ export const batchApi = {
   action: (id: string, action: 'pause' | 'resume' | 'stop' | 'retry') => request<Batch>(`/api/collation/batches/${id}/action`, 'POST', { action }),
   result: (id: string) => request<BatchResult>(`/api/collation/items/${id}/result`),
   attempts: (id: string, offset = 0) => request<{ total: number; items: BatchAttempt[] }>(`/api/collation/items/${id}/attempts?offset=${offset}`),
-  adopt: (id: string, expected_revision: number) => request<ResearchUnit>(`/api/collation/items/${id}/adopt`, 'POST', { expected_revision }),
   export: (id: string) => request<ArrayBuffer>(`/api/collation/batches/${id}/export`),
   exportLog: (id: string) => request<{ filename: string; content: string }>(`/api/collation/batches/${id}/export?format=json`),
 };
