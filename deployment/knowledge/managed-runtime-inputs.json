@@ -1,0 +1,367 @@
+{
+  "format": 1,
+  "compiler": "14.44.35229",
+  "sdk": "10.0.26100.0",
+  "artifacts": [
+    {
+      "path": "Microsoft.VC.14.44.17.14.Tools.HostX64.TargetX64.base.vsix",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/aa209763-134c-427b-9960-9ca54ccc1734/f4ad3cee4ef18e9f36382399261de27be6910ab3467178d7e687377ec841306d/Microsoft.VC.14.44.17.14.Tools.HostX64.TargetX64.base.vsix",
+      "sha256": "f4ad3cee4ef18e9f36382399261de27be6910ab3467178d7e687377ec841306d",
+      "kind": "msvc"
+    },
+    {
+      "path": "Microsoft.VC.14.44.17.14.Tools.HostX64.TargetX64.Res.base.vsix",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/aa209763-134c-427b-9960-9ca54ccc1734/603375e4d6d639bc6e0a7d0d657b17e0c3b72e52450f78eb41e987f40c3b5305/Microsoft.VC.14.44.17.14.Tools.HostX64.TargetX64.Res.base.enu.vsix",
+      "sha256": "603375e4d6d639bc6e0a7d0d657b17e0c3b72e52450f78eb41e987f40c3b5305",
+      "kind": "msvc"
+    },
+    {
+      "path": "Microsoft.VC.14.44.17.14.CRT.Headers.base.vsix",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/c610cd8c-801b-44b8-a80a-82cc382aeb43/852382a9aa73502b7849c1bcadfb603ba7175c4e8b60e6aba03c7de711d4ece5/Microsoft.VC.14.44.17.14.CRT.Headers.base.vsix",
+      "sha256": "852382a9aa73502b7849c1bcadfb603ba7175c4e8b60e6aba03c7de711d4ece5",
+      "kind": "msvc"
+    },
+    {
+      "path": "Microsoft.VC.14.44.17.14.CRT.x64.Desktop.base.vsix",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/67cf767c-5e71-47c2-a54a-cd5631e28942/f01f701a7bcd9587a340898c851424f6a52bb913a70c185ff0d5bf0288c5831a/Microsoft.VC.14.44.17.14.CRT.x64.Desktop.base.vsix",
+      "sha256": "f01f701a7bcd9587a340898c851424f6a52bb913a70c185ff0d5bf0288c5831a",
+      "kind": "msvc"
+    },
+    {
+      "path": "Microsoft.VC.14.44.17.14.CRT.x64.Store.base.vsix",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/67cf767c-5e71-47c2-a54a-cd5631e28942/9135b03c0df53c7a0aa9bef7230a1c2ff4263a0ee7baa7e419d034f484f6bb56/Microsoft.VC.14.44.17.14.CRT.x64.Store.base.vsix",
+      "sha256": "9135b03c0df53c7a0aa9bef7230a1c2ff4263a0ee7baa7e419d034f484f6bb56",
+      "kind": "msvc"
+    },
+    {
+      "path": "sdk-installers/05047a45609f311645eebcac2739fc4c.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/67a9b258981565b78c46484efbed6945/05047a45609f311645eebcac2739fc4c.cab",
+      "sha256": "902003E4976C7BC4BCDA9F31F1D835B8072235532412770F66B0BC9F0882CB7E",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/07a57cdb41ba28cced14005f087267be.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/2487cb3527b23ee3c6f081e01c2a1bc0/07a57cdb41ba28cced14005f087267be.cab",
+      "sha256": "1F350449F6F598A4D9B316E69AD9B845DB8E8D919B8B34F5C07B32598F6DE319",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/13d68b8a7b6678a368e2d13ff4027521.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/2160d8b73fe2e4fea3e2097084a081cd/13d68b8a7b6678a368e2d13ff4027521.cab",
+      "sha256": "0B26EDE2D22EA531D921269DFFFCD14CC71D6932CAC0F2720FCEC37079286643",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/16ab2ea2187acffa6435e334796c8c89.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/d56a87b40b1de33c2c39a1a3d009e148/16ab2ea2187acffa6435e334796c8c89.cab",
+      "sha256": "D29E10BB5CE2E28957B5635B6EEB6A491FDB311C925B398443451F953F399BC2",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/263104e5ce3a72f68151a93d88a3f22f.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/c7e5cac24110bc6d2592b50f3649d0ba/263104e5ce3a72f68151a93d88a3f22f.cab",
+      "sha256": "281B6C3AB8248B9B1B00659F7A48207A5CFDDAD58D8EC4C670292839F73A5D97",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/2e876dd22fa5e6785f137e3422dd50ec.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/2f5955d08b28c63142f927aa3696c15a/2e876dd22fa5e6785f137e3422dd50ec.cab",
+      "sha256": "BD490C2DA3B5837261D43791A02EA3BB6AEF1DE787F52BEC5E7DD638BFB77F51",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/4035a83dc8e73244d15d1196d55059c3.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/f75b4fd859e50eb5ff223216a2adb159/4035a83dc8e73244d15d1196d55059c3.cab",
+      "sha256": "577063EBB8A8E9E04D4D44F3CB7FD63FD5C4499742FD54C111A74247F2D1B6E5",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/44472e2321abba45e828de25827264a3.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/31d599b45829ece93795037f2f9da232/44472e2321abba45e828de25827264a3.cab",
+      "sha256": "BF9A4EE11D41FE1C0433B02BA27A8542A544F7B8C9313E7ABA1B0084058FBAB9",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/463ad1b0783ebda908fd6c16a4abfe93.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/637a623c788980d4a7edf6d84e34ed70/463ad1b0783ebda908fd6c16a4abfe93.cab",
+      "sha256": "43C40559098A2C1EFBEF6AF16F97A44FD80B3BB9FE8AE117C4E6F9F3F852B8E8",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/4e2dea081242e821596b58b31bc22cca.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/b7ce232be3f34a8c000f05295cfbf90d/4e2dea081242e821596b58b31bc22cca.cab",
+      "sha256": "778434BAEEB33A0ED08E668882954B2CDA37B04AF44F573CDCF6047EC0109F11",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/4fe4c8b88812f5339018c0eef95acdb9.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/9992f4e9621a59b8bd9a57cd62e0d567/4fe4c8b88812f5339018c0eef95acdb9.cab",
+      "sha256": "CADD61CAAB00B5AD3EF449EFB54F8A7B1A43A7CFB85F321B544CA578B14E179B",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/58314d0646d7e1a25e97c902166c3155.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/cb954f8bc3015e25cfd985a5fff3452a/58314d0646d7e1a25e97c902166c3155.cab",
+      "sha256": "EC209A224C9B2D31F3409208D30F5A6335C55217AD384D6212C833AC83360EBA",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/598442d9f84639d200d4f3af477da95c.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/6b2630c96c8b87f5702a01c8170dbb4e/598442d9f84639d200d4f3af477da95c.cab",
+      "sha256": "670383674E304CE1C736576937BBE890AFD4BE43F44C17DBE1605BB0CBF06174",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/5a22e5cde814b041749fb271547f4dd5.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/03cfd7ea3b3116d5d32d11df101dea24/5a22e5cde814b041749fb271547f4dd5.cab",
+      "sha256": "57E7E309413D05B781AE76D1B5C54DC7AFF350B6A460920F1F358E8003AABDFB",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/6ee7bbee8435130a869cf971694fd9e2.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/9a7bacb65de148f099902218ada3394b/6ee7bbee8435130a869cf971694fd9e2.cab",
+      "sha256": "04728E326214D8960A188614995B65A3E9E33F93EAF13DD3CA16FE513CDFF0DE",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/766c0ffd568bbb31bf7fb6793383e24a.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/b4a6e43a0c35ad8d4e8957eb581443ec/766c0ffd568bbb31bf7fb6793383e24a.cab",
+      "sha256": "C590F816F3BB15A79A0BF815CA942AEEC4A36C08FD66FA35A243C86B4F8BAC7D",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/78fa3c824c2c48bd4a49ab5969adaaf7.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/721e7f21ddaab126788f6f8b5c3725b4/78fa3c824c2c48bd4a49ab5969adaaf7.cab",
+      "sha256": "6F9096BC7C182383C22A947D1B2C994D78D1742CA25163FAD8FD8C2C848419C5",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/7afc7b670accd8e3cc94cfffd516f5cb.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/fdde52f2c4a6db47e015e514a79c3454/7afc7b670accd8e3cc94cfffd516f5cb.cab",
+      "sha256": "1D99DC10063C05E8B34B82AF18DB61C080809456D471674D0272F071526DF0AB",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/8125ee239710f33ea485965f76fae646.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/e97c5af6189039047f84fbb140167fc6/8125ee239710f33ea485965f76fae646.cab",
+      "sha256": "AFCA62A1E32F28FAD347F7610C6EF663506A798DB78AC4E4CF545AEAA4C5D1D3",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/931721e121ef91707ddcb6cac354d95c.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/a7cf8448cfd6622fa6c0a7eaa6dc33b7/931721e121ef91707ddcb6cac354d95c.cab",
+      "sha256": "2CFB9FDEDFBE917EC475360600AB476561E4000B55A7C3B59385E2F1ABB378E9",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/96076045170fe5db6d5dcf14b6f6688e.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/510c03213f78beff83c9149c96da2ab6/96076045170fe5db6d5dcf14b6f6688e.cab",
+      "sha256": "82D970F5B628250EF72467D0826260C6A9F32252F42DAA3C31FED2A23170170E",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/a1e2a83aa8a71c48c742eeaff6e71928.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/87fede232add653343acc94dbdac4118/a1e2a83aa8a71c48c742eeaff6e71928.cab",
+      "sha256": "29F8ED0537B49087321DFB7CCE60AAD7252900ECFBD81D6336FDB67056778A5D",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/a68c0988d16ee124783efd98074dcbf9.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/80c2a91a0f0ea850f4891d1db71f09b9/a68c0988d16ee124783efd98074dcbf9.cab",
+      "sha256": "D2BFB6DDC31C6A48744B4004F124722EBF606B7CD305391BC34B0857238CF2E3",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/b0656253ef2f688d2982eafa2e73f621.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/07311fb08fb7f55dc89e36c4a69b32e5/b0656253ef2f688d2982eafa2e73f621.cab",
+      "sha256": "DE70F656DE01FD2F2E17539B4A50DDD66E2B0AC4486DFBF870CF4DC499DB24C7",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/b2f03f34ff83ec013b9e45c7cd8e8a73.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/be7bcaf329bbeef873a874aee49456b7/b2f03f34ff83ec013b9e45c7cd8e8a73.cab",
+      "sha256": "A17B9674B79AC4C8D9C4516C41D6F32FCDE041BDB07EC7F0758C16EE8A62ECAC",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/b5f177b84c0ec473cbd69557634b27cd.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/85c779385bf7829f3f988cafdd9a9cc6/b5f177b84c0ec473cbd69557634b27cd.cab",
+      "sha256": "90A10D7B9C4333B87F2ABB3D575BDFD9A7A02417613C98DD1E65358038DE922D",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/beb5360d2daaa3167dea7ad16c28f996.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/b0082c046bf17896e9730ca9f40200ac/beb5360d2daaa3167dea7ad16c28f996.cab",
+      "sha256": "6FEAABF4B1B09B4E3210ADDDB12C8C8D6702D731DA033784EF0330488F5BEF51",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/c0aa6d435b0851bf34365aadabd0c20f.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/6699951ca96b8696e87c51e6b45d524a/c0aa6d435b0851bf34365aadabd0c20f.cab",
+      "sha256": "B9E05D77C4E719D4F394B5A66328CFB2DF2A80914785545EEB049A69FCB11D3C",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/c4d38a2c963178a1a3469ca3d913768e.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/5922e25c084f0151532597508035ec3c/c4d38a2c963178a1a3469ca3d913768e.cab",
+      "sha256": "23E917DA442368FD73A007D211314BBDDBE310464F1B6906FE7CA23614C4AA33",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/d1de88680a8e53fe75e01e94dc0ed767.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/f5ae8b50cc21a7ed5bcace1a38fe8fa3/d1de88680a8e53fe75e01e94dc0ed767.cab",
+      "sha256": "9D88FA269DC02FD3FDE50A056C04D6DFCC5B8A15739AE0F3E7AC51CC1C88F5B8",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/d95da93904819b1f7e68adb98b49a9c7.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/8528492e1ce2a653db74d3988d9ee96b/d95da93904819b1f7e68adb98b49a9c7.cab",
+      "sha256": "BC3BEABEBC0A9F161BBBE69DBCE0075019CA6E40F5DF5A8B2342A8A2AB25B22A",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/de111c3d435b0785b31b28c386ee691f.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/1372878d21c87ccd9f558d8df64eb80d/de111c3d435b0785b31b28c386ee691f.cab",
+      "sha256": "D993E77090A87D9120965278DDB6F95841C0A3E8BFC88647E985F02298369480",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/e10768bb6e9d0ea730280336b697da66.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/b2915dcb648d1087f4a5ef20f17c9825/e10768bb6e9d0ea730280336b697da66.cab",
+      "sha256": "46E21578A4CFCE3BD6E4EACC10B92121A825CE443CC2F6CCE84B07E37B9D21BC",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/e89e3dcbb016928c7e426238337d69eb.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/e37c4e19cf7a02f7b6f243de3316c9ea/e89e3dcbb016928c7e426238337d69eb.cab",
+      "sha256": "4E5F0346D59FAAE3742C79D48DF74F221B202DA347F5751CC3E53156941368F1",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/eca0aa33de85194cd50ed6e0aae0156f.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/827f1b56c1f9090dca62cf5bef23d094/eca0aa33de85194cd50ed6e0aae0156f.cab",
+      "sha256": "C0C6CC329D2BE2DDBA902649C46EFB9064186C2185445451602C90D9C7EB3DD8",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/ed4d1c6b9811d81e3cebc553ae604f0d.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/95d1db5aaeedff59ee646ddf221abbc6/ed4d1c6b9811d81e3cebc553ae604f0d.cab",
+      "sha256": "FDD06CDA47472586752E719DC67C7A145B6FEF32EACB6E293DCB2525D4E12FB5",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/f2e05dfd38ed343d3de77209cf3ecdae.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/107cd9d9170325d1ded9e4cc47a9c4cc/f2e05dfd38ed343d3de77209cf3ecdae.cab",
+      "sha256": "C536E6742D56A05C47310C23E09A9E5A5552D914F5752FF9050EEE88E009BCF9",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/f4661eda3692e166927c14c96164150a.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/e5a8ca8b40ba461a111dea5cc5871370/f4661eda3692e166927c14c96164150a.cab",
+      "sha256": "C1CC9E73ACF7E2F6EF4C24F0753197200328621CFD70467C11CBBB0774400087",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/f9b24c8280986c0683fbceca5326d806.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/66f36d1686d2dde0cfa99a5160a9571d/f9b24c8280986c0683fbceca5326d806.cab",
+      "sha256": "154F4A24EC22EA0C932709F0E1A2C443946B42C14291A49A280AB4EA0EAA504D",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/f9ff50431335056fb4fbac05b8268204.cab",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/8383be7caac218b9afd6a3564dbb0984/f9ff50431335056fb4fbac05b8268204.cab",
+      "sha256": "355CC1E65B9E5F02A0B3A4F32D02F9241B97030D3527166EFF6A372D5D0E1BAC",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Universal CRT Headers Libraries and Sources-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/d10da41a6ad6809f823ef4a92d4f6c56/universal%20crt%20headers%20libraries%20and%20sources-x86_en-us.msi",
+      "sha256": "F611CE8A9E576E3383917B04B6FBE5EE6BED8363C1A2A8E9D6F8335CBB422675",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK Desktop Headers x64-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/ed222baa6d1d1dc09fb45a1827e7892a/windows%20sdk%20desktop%20headers%20x64-x86_en-us.msi",
+      "sha256": "D189CA50E5632B546795922E2262794C068D6FF301860FEB4522B8B93CBB3BA8",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK Desktop Headers x86-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/7fad2c686fb58ea9e6dc0308a2df142f/windows%20sdk%20desktop%20headers%20x86-x86_en-us.msi",
+      "sha256": "F1E5159FEB948CE90A81DCC6A427DDE844610230CB6ED787E35D422DE527A5F8",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK Desktop Libs x64-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/a7dce16da158fe456395566e2dafd23d/windows%20sdk%20desktop%20libs%20x64-x86_en-us.msi",
+      "sha256": "2E956CA1CF17800B0F9811A6249B945F045ADDF18EE85FFE7AEA99EC6C27243A",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK EULA-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/4adaf0e5ffed56dbbdd2e1a7928a69c9/windows%20sdk%20eula-x86_en-us.msi",
+      "sha256": "F3958C26326C6AEB29CB91A62E8E7F2F4347B8847313D6A8041567B12D493BB6",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK for Windows Store Apps Headers OnecoreUap-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/95de969f19c09fe411b779c2e2f06f0d/windows%20sdk%20for%20windows%20store%20apps%20headers%20onecoreuap-x86_en-us.msi",
+      "sha256": "BE5EE13CCC98B87211B4F3686972B00FA16F20F266FE9DC5572D62F001E0547C",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK for Windows Store Apps Headers-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/06062c286c5533d4d2c47e613ae44793/windows%20sdk%20for%20windows%20store%20apps%20headers-x86_en-us.msi",
+      "sha256": "C9F78AE3E730EA1789A37001E204A970099D2ACC555CC537FB45EA0BB23B347C",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK for Windows Store Apps Libs-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/079ca63878193e064d8aa000670f0db3/windows%20sdk%20for%20windows%20store%20apps%20libs-x86_en-us.msi",
+      "sha256": "1381535D2F6B1894A092DA67F8A8FB048A4DFE8060CE75B3275AFFA81B02586E",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK for Windows Store Apps-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/f69271860a7f11ef50ec22c2f8925e29/windows%20sdk%20for%20windows%20store%20apps-x86_en-us.msi",
+      "sha256": "5603DB7A320D34B4F08774D5735960551777DAD8026848054BF349DCFAC17348",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK OnecoreUap Headers x64-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/e97ca2e01a3fd50e3270b20acf1971ad/windows%20sdk%20onecoreuap%20headers%20x64-x86_en-us.msi",
+      "sha256": "14667A930569186A25E75EB35614CE43549B7406705E098DB71FFE9B31C60FAA",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK OnecoreUap Headers x86-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/bf4c8a484028b6e592a6a9d818c21777/windows%20sdk%20onecoreuap%20headers%20x86-x86_en-us.msi",
+      "sha256": "09725127B70E645FD0C86F004A1B0204AE72D685D70B2E3856EFC00533AAEEC3",
+      "kind": "sdk"
+    },
+    {
+      "path": "sdk-installers/Windows SDK-x86_en-us.msi",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6452c1f1-dc1e-413c-8b19-991b61870a8b/1c739a7b00b84560ed509d271144f223/windows%20sdk-x86_en-us.msi",
+      "sha256": "88B217903D9C56416566512D6CF8F29EA9A10BBC50CDDF02556DDA70DFC6D570",
+      "kind": "sdk"
+    },
+    {
+      "path": "VC_redist.x64.exe",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/b461556f-5015-4fc6-bbf7-9797ea7480aa/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe",
+      "sha256": "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b",
+      "kind": "redist"
+    },
+    {
+      "path": "postgresql-17.11-1-windows-x64-binaries.zip",
+      "url": "https://get.enterprisedb.com/postgresql/postgresql-17.11-1-windows-x64-binaries.zip",
+      "sha256": "6eabdf00d2893713b75db4336a23c3fdf505f056e217ec6e2e95d901750cfea3",
+      "kind": "postgres"
+    },
+    {
+      "path": "pgvector-v0.8.7.zip",
+      "url": "https://codeload.github.com/pgvector/pgvector/zip/refs/tags/v0.8.7",
+      "sha256": "7b3b8188a5cc0aa96db3c8f3fca1e78a8a612c46545065490c76448705c6b29e",
+      "kind": "vector"
+    }
+  ]
+}

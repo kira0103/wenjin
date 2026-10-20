@@ -1,0 +1,101 @@
+// Real renderer, isolated PostgreSQL, local model fixture; no user library or cloud calls.
+const {app,BrowserWindow,ipcMain}=require('electron');
+const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto');
+const {spawn}=require('node:child_process');const {stopServiceTree}=require('./gui_service_process.cjs');const http=require('node:http'),net=require('node:net');
+const project=path.resolve(__dirname,'..'),output=path.join(project,'.local','categories-rc9');fs.mkdirSync(output,{recursive:true});
+const root=path.join(output,'gui-'+crypto.randomUUID());fs.mkdirSync(root);app.setPath('userData',path.join(root,'electron'));app.on('window-all-closed',()=>{});
+let service,win,base,token,model,stage='startup',activeCalls=0,peakCalls=0,customUsed=false,cancelStarted=0,cancelledCalls=0,exported=false;
+const rendererErrors=[],delay=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(check,label,seconds=80){const end=Date.now()+seconds*1000;while(Date.now()<end){if(await check())return;await delay(150);}throw Error('Timed out: '+label);}
+async function api(route,method='GET',body){const res=await fetch(base+route,{method,headers:{'X-App-Token':token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const data=await res.json();if(!res.ok)throw Error('API '+route+' '+res.status+' '+JSON.stringify(data));return data;}
+async function js(code){return win.webContents.executeJavaScript(code);}
+async function click(text){stage='click '+text;await js(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)});if(!b||b.disabled)throw Error('Button missing/disabled: '+${JSON.stringify(text)});b.click();})()`);await delay(80);}
+async function card(text){stage='card '+text;await js(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.querySelector('strong')?.textContent===${JSON.stringify(text)});if(!b)throw Error('Card missing');b.click();})()`);await delay(150);}
+async function field(label,value,tag='input'){stage='field '+label;await js(`(()=>{const el=document.querySelector(${JSON.stringify(tag+'[aria-label="'+label+'"]')});if(!el)throw Error('Field missing');const setter=Object.getOwnPropertyDescriptor(${tag==='select'?'HTMLSelectElement':tag==='textarea'?'HTMLTextAreaElement':'HTMLInputElement'}.prototype,'value').set;setter.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event(${JSON.stringify(tag==='select'?'change':'input')},{bubbles:true}));})()`);await delay(50);}
+async function has(text){return js(`document.body.innerText.includes(${JSON.stringify(text)})`);}
+async function stop(){if(win&&!win.isDestroyed())win.destroy();if(service&&service.exitCode===null){try{await api('/api/service/exit','POST');await until(()=>service.exitCode!==null,'shutdown',35);}catch{await stopServiceTree(service);await until(()=>service.exitCode!==null,'service tree exit',35);}}if(model){model.closeAllConnections();await new Promise(r=>model.close(r));}}
+app.whenReady().then(async()=>{
+  model=http.createServer((req,res)=>{let raw='';req.on('data',d=>raw+=d);req.on('end',()=>{try{
+    const call=JSON.parse(raw),input=JSON.parse(call.messages[1].content);if(raw.includes('GUI-自定义证据方法'))customUsed=true;
+    activeCalls++;peakCalls=Math.max(peakCalls,activeCalls);let closed=false;const finish=()=>{if(!closed){closed=true;activeCalls--;}};res.on('close',finish);
+    if(input.question==='协作停止测试'){cancelStarted++;res.on('close',()=>cancelledCalls++);setTimeout(()=>{if(!res.destroyed)res.end('{}');},12000);return;}
+    let text;if(input.task==='plan')text=JSON.stringify(input.recent_steps.some(s=>s.action==='search')?{action:'finish'}:{action:'search',query:'财政赋税',mode:'exact'});
+    else text='财政赋税与折银制度须依据原文核对。[E1]\n\n当前材料支持初步比较，研究解释仍待人工审核。';
+    setTimeout(()=>{if(!res.destroyed){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({choices:[{message:{content:text},finish_reason:'stop'}],usage:{total_tokens:100}}));}},180);
+  }catch{res.writeHead(500);res.end('{}');}});});
+  await new Promise(r=>model.listen(0,'127.0.0.1',r));
+  const port=await new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});base=`http://127.0.0.1:${port}`;token=crypto.randomBytes(32).toString('hex');
+  const env={...process.env,HF_HUB_OFFLINE:'1',PYTHON_KEYRING_BACKEND:'keyring.backends.null.Keyring',SHIXUE_KB_MODEL_CACHE:path.join(process.env.APPDATA,'shixue-workbench','models')};delete env.SHIXUE_KB_DATABASE_URL;
+  const binary=process.env.SHIXUE_GUI_BINARY,args=['--port',String(port),'--data-dir',root,'--token',token,'--database-mode','internal'];
+  service=spawn(binary||path.join(project,'.venv','Scripts','python.exe'),binary?args:[path.join(project,'backend','app.py'),...args],{windowsHide:true,stdio:'ignore',env});
+  await until(async()=>{if(service.exitCode!==null)throw Error('Service exited');try{return(await fetch(base+'/health')).ok;}catch{return false;}},'service');
+  await api('/api/settings','PUT',{base_url:`http://127.0.0.1:${model.address().port}/v1`,model:'assistant-gui-fixture',provider_name:'隔离测试模型',context_tokens:16384,max_output_tokens:2000});
+  const editions=[];
+  for(const type of ['ancient','article']){
+    const value=await api('/api/knowledge/catalog','POST',{title:type==='ancient'?'古籍证据界面样本':'论文证据界面样本',item_type:type,label:'独立测试'});editions.push(value);
+    const response=await fetch(base+`/api/knowledge/catalog/editions/${value.id}/imports?filename=${type}.txt`,{method:'POST',headers:{'X-App-Token':token,'Content-Type':'application/octet-stream'},body:Buffer.from('财政赋税𠀀关系国家财政，折银制度须对照具体史料和研究语境。')});if(!response.ok)throw Error('Import failed');
+  }
+  await until(async()=>!(await api('/api/knowledge/jobs')).some(j=>['queued','running'].includes(j.state)),'index');
+  const coreSource=path.join(root,'core-source');fs.mkdirSync(path.join(coreSource,'儒藏'),{recursive:true});fs.writeFileSync(path.join(coreSource,'儒藏','未关联核心样本.md'),'---\ntitle: 未关联核心样本\n---\n財政賦稅制度，須核對原文。');await api('/api/knowledge/core/import','POST',{source_path:coreSource,slug:'library-gui'});await until(async()=>{const job=(await api('/api/knowledge/jobs')).find(j=>j.kind==='core_import');if(job?.state==='failed')throw Error(job.error);return job?.state==='succeeded';},'core import');
+  ipcMain.handle('api:request',async(_event,req)=>{const res=await fetch(base+req.path,{method:req.method||'GET',headers:{'X-App-Token':token,'Content-Type':'application/json'},body:req.body===undefined?undefined:JSON.stringify(req.body)});const contentType=res.headers.get('content-type')||'';return{status:res.status,contentType,body:contentType.includes('application/octet-stream')?await res.arrayBuffer():await res.json()};});
+  ipcMain.handle('storage:info',()=>({dataDir:root,configFile:path.join(root,'bootstrap.json'),changing:false,versionDependent:false}));ipcMain.handle('storage:open',()=>{});ipcMain.handle('storage:choose',()=>({changed:false}));
+  ipcMain.handle('file:pick-pdf',()=>[]);ipcMain.handle('file:save',(_event,value)=>{if(value.filename.endsWith('.zip')){fs.writeFileSync(path.join(output,'gui-exported-skill.zip'),Buffer.from(value.data));exported=true;}return true;});ipcMain.handle('app:open-external',()=>{});
+  win=new BrowserWindow({width:1550,height:1200,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(project,'electron','preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  win.webContents.on('console-message',(event,...args)=>{const msg=event.message||args[1]||'';if(msg)rendererErrors.push(String(msg));});
+  await win.loadFile(path.join(project,'dist','index.html'));await until(()=>has('文献库'),'navigation');await click('文献库');await until(()=>has('未关联核心样本'),'unified ancient catalog');
+  const tabs=await js("[...document.querySelectorAll('.kb-tabs button')].map(b=>b.textContent.trim())");if(JSON.stringify(tabs)!==JSON.stringify(['古籍','论文','统一检索']))throw Error('Unexpected library tabs '+JSON.stringify(tabs));if(await has('研究笔记')||await has('新建专题'))throw Error('Retired UI still visible');
+
+  async function category(name){await js(`(()=>{const b=[...document.querySelectorAll('.kb-category-row')].find(b=>b.querySelector('span').textContent===${JSON.stringify(name)});if(!b)throw Error('Category missing');b.click();})()`);await delay(400);}
+  async function chooseCategory(name){await until(()=>js(`!![...document.querySelectorAll('[role="dialog"] .kb-category-choices label')].find(l=>l.textContent===${JSON.stringify(name)}&&!l.querySelector('input').disabled)`),'classification ready');await js(`(()=>{const label=[...document.querySelectorAll('[role="dialog"] .kb-category-choices label')].find(l=>l.textContent===${JSON.stringify(name)});if(!label)throw Error('Category checkbox missing');label.querySelector('input').click();})()`);await delay(50);}
+  async function dialogClosed(){await until(()=>js('!document.querySelector("[role=dialog]")'),'category modal closed');}
+  await until(()=>has('文献分类'),'category tree');await click('新增');await field('分类名称','明清经济研究');await click('保存分类');await dialogClosed();await category('明清经济研究');
+  await click('新增子类');await field('分类名称','赋役制度');await click('保存分类');await dialogClosed();await category('全部文献');
+  await js(`(()=>{const card=[...document.querySelectorAll('.kb-list .kb-card')].find(c=>c.textContent.includes('古籍证据界面样本'));[...card.querySelectorAll('button')].find(b=>b.textContent==='设置分类').click();})()`);
+  await until(()=>has('当前分类：未分类'),'single membership loaded');await chooseCategory('明清经济研究');await chooseCategory('明清经济研究 / 赋役制度');await click('保存归类');await dialogClosed();
+  if((await api('/api/knowledge/literature-memberships/read','POST',{work_ids:[editions[0].work_id]})).items.length!==2)throw Error('Multiple membership failed');
+  await category('赋役制度');await until(()=>has('古籍证据界面样本'),'ancient classification');if(await has('未关联核心样本'))throw Error('Classification leaked unfiled ancient');
+  await click('论文');await until(()=>has('暂无符合条件的论文'),'classification follows paper tab');
+  await click('导入论文');await click('仅建立书目');await field('导入题名1','分类导入论文样本');await click('确认导入');await dialogClosed();await until(()=>has('处理任务'),'import returned');
+  await click('论文');await until(()=>has('分类导入论文样本'),'import category destination');
+  if(await js("document.querySelector('.kb-paper-table').textContent.includes('论文证据界面样本')"))throw Error('Unfiled paper leaked into category');
+  await category('全部文献');await until(()=>has('论文证据界面样本'),'all paper rows');await js("document.querySelector('input[aria-label=\"选择已加载文献\"]').click()");await click('批量设置分类');await until(()=>has('批量分类 · 2 部文献'),'bulk works');await chooseCategory('明清经济研究 / 赋役制度');await click('保存归类');await dialogClosed();
+  await category('明清经济研究');await until(()=>has('论文证据界面样本'),'parent papers');let tree=await api('/api/knowledge/literature-categories');const parent=tree.items.find(c=>c.name==='明清经济研究'),child=tree.items.find(c=>c.name==='赋役制度');if(parent.ancient!==1||parent.papers!==2)throw Error('Category counts wrong');
+  await click('编辑分类');await field('分类名称','明清经济与社会研究');await click('保存分类');await dialogClosed();await until(()=>has('明清经济与社会研究'),'rename category');
+  await until(()=>js("document.querySelectorAll('.kb-paper-table tbody tr').length===2"),'renamed category papers loaded');fs.writeFileSync(path.join(output,'literature-categories.png'),(await win.webContents.capturePage()).toPNG());
+  await click('统一检索');await field('统一文献检索','财政赋税');await click('查找原文');await until(()=>has('本次返回'),'category original search');if(await has('未关联核心样本'))throw Error('Category original search escaped scope');
+  await click('交给研究助手');await until(()=>has('当前研究限定在文献库传入的分类'),'category research handoff');await click('开始研究');await until(async()=>{const run=(await api('/api/knowledge/research-runs'))[0];if(run?.state==='failed')throw Error('Category research failed '+run.error);return run?.state==='succeeded';},'category assistant');const categoryRun=(await api('/api/knowledge/research-runs'))[0];const categoryDetail=await api('/api/knowledge/research-runs/'+categoryRun.id);if(categoryDetail.request.scope.category_id!==parent.id)throw Error('Category lost during research');
+  await click('文献库');await until(()=>has('文献分类'),'category reentry');await category('赋役制度');await click('删除分类');await click('确认删除分类与子类');await dialogClosed();await category('未分类');await click('论文');await until(()=>has('论文证据界面样本'),'deletion kept works');if(!(await has('分类导入论文样本')))throw Error('Imported paper deleted with category');
+  await category('全部文献');
+
+  await click('论文');await until(()=>has('论文证据界面样本'),'paper catalog');if(await js("document.querySelector('.kb-paper-table').textContent.includes('古籍证据界面样本')"))throw Error('Paper catalog contains ancient book');
+  fs.writeFileSync(path.join(output,'paper-library.png'),(await win.webContents.capturePage()).toPNG());
+  await click('统一检索');await field('统一文献检索','财政赋税');await click('查找原文');await until(()=>has('本次返回'),'whole library search');if(!(await has('未关联核心样本')))throw Error('Unlinked core corpus omitted from global search');
+  fs.writeFileSync(path.join(output,'unified-search.png'),(await win.webContents.capturePage()).toPNG());
+  await click('用此文献研究');await until(()=>js("!!document.querySelector('select[aria-label=\"研究指定版本\"]')"),'research handoff');if(await js("document.querySelector('textarea[aria-label=\"研究问题\"]').value")!=='财政赋税')throw Error('Research question lost');
+  await field('研究指定版本',editions[0].id,'select');await click('开始研究');await until(async()=>{const run=(await api('/api/knowledge/research-runs'))[0];if(run?.state==='failed')throw Error('Research failed '+run.error);return run?.state==='succeeded';},'single research');await until(()=>has('保存到项目成果'),'save action');await click('保存到项目成果');await click('确认保存成果');await until(()=>has('已保存到项目'),'artifact saved');
+  const artifacts=await api('/api/artifacts?project_id=project-main');if(!artifacts.some(a=>JSON.parse(a.body).research_sources?.length))throw Error('Project result lacks citations');if((await api('/api/knowledge/notes')).length)throw Error('Saving result created a note');
+  await click('模型与设置');await click('数据与备份');await until(()=>has('迁移到固定目录'),'storage controls');await click('助手与 Skill');await until(()=>has('新增技能'),'skill center');
+  await click('新增技能');await field('配置名称','GUI 自定义技能');await field('配置标识','gui-custom-skill');await field('配置描述','界面验证用的原文研究方法','textarea');await field('配置方法','GUI-自定义证据方法：先核对原文，再列论断与证据，不补造解释。','textarea');await click('保存草稿');await until(()=>has('草稿已保存'),'draft');await click('校验技能');await until(()=>has('静态校验通过'),'validate');
+  let skill=(await api('/api/knowledge/skills')).find(v=>v.slug==='gui-custom-skill');if(skill.active_version)throw Error('Draft was activated');
+  await click('用文献测试已保存草稿');await until(()=>has('技能测试：'),'trial view');await field('研究问题','自定义技能样本测试','textarea');await field('研究指定版本',editions[0].id,'select');await click('开始研究');
+  await until(async()=>{const runs=await api('/api/knowledge/research-runs');return runs[0]?.state==='succeeded';},'trial completed');await until(()=>has('保存到项目成果'),'trial result');
+  const trial=(await api('/api/knowledge/skills/'+skill.id+'/tests'))[0];if(!trial||!customUsed||(await api('/api/knowledge/skills/'+skill.id)).active_version)throw Error('Skill trial contract failed');
+  await click('退出技能测试');await until(()=>has('GUI 自定义技能'),'reopen skills');await until(()=>has('发布版本'),'loaded draft');await click('发布版本');await until(async()=>!!(await api('/api/knowledge/skills/'+skill.id)).active_version,'publish');
+  skill=await api('/api/knowledge/skills/'+skill.id);const oldVersion=skill.active_version;
+  await field('配置方法','GUI-自定义证据方法第二版：逐项标出依据和资料不足。','textarea');await click('保存草稿');await until(()=>has('草稿已保存'),'save v2');await click('发布版本');await until(async()=>(await api('/api/knowledge/skills/'+skill.id)).active_version!==oldVersion,'publish v2');
+  await field('配置历史版本',oldVersion,'select');await click('设为默认版本');await until(async()=>(await api('/api/knowledge/skills/'+skill.id)).active_version===oldVersion,'rollback');await click('导出技能包');await until(()=>exported,'export');
+  fs.writeFileSync(path.join(output,'skill-center.png'),(await win.webContents.capturePage()).toPNG());
+  await click('智能体管理');await until(()=>has('新增智能体'),'agents');await click('新增智能体');await field('配置名称','GUI 专业助手');await field('配置标识','gui-custom-agent');await field('配置描述','绑定自定义研究技能','textarea');await field('配置方法','依据指定材料完成古籍证据搜集。','textarea');
+  await js(`(()=>{const label=[...document.querySelectorAll('.kb-binding')].find(v=>v.textContent.includes('GUI 自定义技能'));if(!label)throw Error('Binding absent');label.querySelector('input').click();})()`);await click('保存草稿');await until(()=>has('草稿已保存'),'save agent');await click('发布版本');
+  let agent;await until(async()=>{agent=(await api('/api/knowledge/agents')).find(v=>v.slug==='gui-custom-agent');return !!agent?.active_version;},'agent publish');
+  await click('研究助手');await click('协同研究');await field('协作研究问题','古籍与论文的财政依据比较','textarea');await field('协作资料范围','all','select');await js("document.querySelector('.kb-quality').open=true");await until(()=>js(`!!document.querySelector('select[aria-label="古籍证据助手配置"] option[value="${agent.active_version}"]')`),'role options');await field('古籍证据助手配置',agent.active_version,'select');await click('开始协同研究');
+  let team;await until(async()=>{const list=await api('/api/knowledge/collaborations');if(!list[0])return false;team=await api('/api/knowledge/collaborations/'+list[0].id);if(team.state==='failed')throw Error('Team failed: '+team.error);return team.state==='succeeded';},'collaboration');
+  if(team.outcome!=='complete'||team.nodes.some(n=>n.state!=='succeeded')||peakCalls!==2||team.usage.reserved_tokens>180000)throw Error('Collaboration validation failed');
+  await until(()=>has('保存到项目成果'),'team renderer');await js("document.querySelector('.kb-quality').open=false;document.querySelector('.kb-collaboration-graph').scrollIntoView({block:'center'})");fs.writeFileSync(path.join(output,'collaboration.png'),(await win.webContents.capturePage()).toPNG());
+  await click('保存到项目成果');await click('确认保存成果');await until(()=>has('已保存到项目'),'team artifact saved');
+  await click('研究助手');await click('协同研究');await field('协作研究问题','协作停止测试','textarea');await field('协作资料范围','all','select');await click('开始协同研究');await until(()=>cancelStarted===2,'two pending calls');await click('停止协作');await until(()=>cancelledCalls===2,'inflight cancellation');
+  const last=(await api('/api/knowledge/collaborations'))[0],cancelled=await api('/api/knowledge/collaborations/'+last.id);if(cancelled.state!=='cancelled'||cancelled.answer||cancelled.nodes.some(n=>['queued','running'].includes(n.state)))throw Error('Cascade cancellation failed');
+  const report={root,version:(await api('/health')).version,schema:(await api('/api/knowledge/health')).schema_revision,custom_skill_used:customUsed,trial_did_not_activate:true,skill_version_rollback:true,skill_export:exported,custom_agent_bound:true,
+    team_nodes:team.nodes.map(n=>({role:n.node_key,state:n.state})),team_outcome:team.outcome,category_tree_crud:true,multiple_memberships:true,bulk_classification:true,import_category_destination:true,category_search:true,category_research_handoff:true,category_delete_retained_works:true,team_model_calls:team.usage.calls,peak_model_concurrency:peakCalls,project_result_saved:true,library_tabs:tabs,unlinked_core_in_global_search:true,paper_type_filter:true,question_handoff:true,notes_not_created:true,storage_controls:true,cancelled_inflight_calls:cancelledCalls};
+  fs.writeFileSync(path.join(output,binary?'packaged-gui-report.json':'source-gui-report.json'),JSON.stringify(report,null,2));for(const name of ['gui-error.txt','gui-error.png'])fs.rmSync(path.join(output,name),{force:true});await stop();app.exit(0);
+}).catch(async error=>{fs.writeFileSync(path.join(output,'gui-error.txt'),stage+'\n'+String(error.stack)+'\n'+rendererErrors.join('\n'));if(win&&!win.isDestroyed())fs.writeFileSync(path.join(output,'gui-error.png'),(await win.webContents.capturePage()).toPNG());try{await stop();}catch{}app.exit(1);});

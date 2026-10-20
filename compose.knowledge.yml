@@ -1,0 +1,32 @@
+name: shixue-knowledge
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg17-bookworm@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+    ports:
+      - "127.0.0.1:55432:5432"
+    environment:
+      POSTGRES_DB: shixue_knowledge
+      POSTGRES_USER: shixue_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/admin_password
+    secrets:
+      - admin_password
+      - owner_password
+      - app_password
+    volumes:
+      - knowledge_pgdata:/var/lib/postgresql/data
+      - ./deployment/knowledge/init.sh:/docker-entrypoint-initdb.d/10-knowledge.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shixue_admin -d shixue_knowledge"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+secrets:
+  admin_password:
+    file: ./.local/knowledge/admin_password
+  owner_password:
+    file: ./.local/knowledge/owner_password
+  app_password:
+    file: ./.local/knowledge/app_password
+volumes:
+  knowledge_pgdata:

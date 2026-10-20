@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+export KB_OWNER_PASSWORD="$(cat /run/secrets/owner_password)"
+export KB_APP_PASSWORD="$(cat /run/secrets/app_password)"
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+\getenv owner_password KB_OWNER_PASSWORD
+\getenv app_password KB_APP_PASSWORD
+CREATE ROLE shixue_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'owner_password';
+CREATE ROLE shixue_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'app_password';
+CREATE EXTENSION vector;
+CREATE EXTENSION pg_trgm;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE, CREATE ON SCHEMA public TO shixue_owner;
+GRANT USAGE ON SCHEMA public TO shixue_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE shixue_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shixue_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE shixue_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO shixue_app;
+SQL
+unset KB_OWNER_PASSWORD KB_APP_PASSWORD
