@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { request } from '../api';
 import RetrievalDiagnostics from './RetrievalDiagnostics';
 
-export type Gold={block_id:string;start:number;end:number;relevance:number};
+type Gold={block_id:string;start:number;end:number;relevance:number};
 type Suite={id:string;name:string;case_count:number};
 type Report={k:number;evaluated:number;stale:number;scope_leaks:number;metrics:Record<string,number|null>;limitations:string[];cases:{case_id:string;query:string;status:string;retrieval_run_id:string;metrics:Record<string,number|null>|null}[]};
 type Detail={id:string;name:string;cases:{id:string;search:{query:string};expected:Gold[];expect_empty:boolean}[];runs:{id:string;state:string;progress:number;error:string;report:Partial<Report>}[]};

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { request } from '../api';
 import MarkdownPreview from './MarkdownPreview';
 
-export type AssistantDraft={slug:string;name:string;description:string;instructions:string;tools:string[];skill_version_ids:string[];files:Record<string,string>;edit_version?:number};
+type AssistantDraft={slug:string;name:string;description:string;instructions:string;tools:string[];skill_version_ids:string[];files:Record<string,string>;edit_version?:number};
 export type AssistantDefinition={id:string;slug:string;draft:AssistantDraft;edit_version:number;enabled:boolean;active_version:string|null;active_number:number;
   versions?:{id:string;number:number;sha256:string;content:AssistantDraft;revoked:boolean}[];used_by?:{id:string;name:string}[]};
 const blank=():AssistantDraft=>({slug:'',name:'',description:'',instructions:'',tools:['search','read','list'],skill_version_ids:[],files:{}});

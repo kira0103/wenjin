@@ -50,7 +50,7 @@ def snapshot(db, identifier):
     return row
 
 
-def snapshot_info(db, row):
+def snapshot_info(row):
     source = json.loads(row['source_json'])
     return {'id': row['material_id'], 'project_id': row['project_id'], 'project_ids': [row['project_id']],
             'title': source.get('title') or source.get('material_title') or '固定输入', 'filename': '固定输入.txt',
@@ -105,7 +105,7 @@ def catalog_materials(db, project_id=None):
 def material_info(db, identifier, project_id=None):
     frozen = snapshot(db, identifier)
     if frozen:
-        return snapshot_info(db, frozen)
+        return snapshot_info(frozen)
     edition, asset = resolve(db, identifier)
     items = catalog_materials(db, project_id)
     item = next((item for item in items if item['edition_id'] == edition and item['asset_id'] == asset), None)

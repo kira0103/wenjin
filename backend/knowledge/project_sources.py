@@ -90,7 +90,7 @@ class ProjectSourceService:
                 r.execute(connection,"UPDATE kb_project_sources SET state='archived' WHERE id=:id",id=created['id'])
             return created
 
-    def list(self, project_id, *, include_archived=False):
+    def list(self, project_id):
         project = self.project(project_id)
         with r.database.transaction(self.root) as connection:
             items=r.rows(connection, 'SELECT s.*,e.label,w.title,w.item_type,w.authors_json '
@@ -128,7 +128,6 @@ class ProjectSourceService:
                   'WHERE id=:id AND project_id=:p RETURNING id', id=source_id, p=project_id)
 
     def resolved_scope(self, project_id):
-        project = self.project(project_id)
         sources = self.list(project_id)
         return {'_project_sources': [{'edition_id': str(item['edition_id']), 'mode': item['mode'],
                                       'ranges': item['ranges']} for item in sources], '_empty': not bool(sources)}

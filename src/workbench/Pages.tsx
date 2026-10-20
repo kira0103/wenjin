@@ -5,7 +5,7 @@ import { clampPage, sourceInfo, type MaterialView, type WorkTab } from './viewSt
 import DocumentReader, { positionName } from './DocumentReader';
 type ExportHandler = (artifact: WorkArtifact | TaskArtifact) => Promise<void>;
 type SourceHandler = (id: string | null | undefined, context?: SourceContext) => Promise<void>;
-export function statusText(status: string) { return ({ queued: '排队中', running: '进行中', completed: '已完成', failed: '执行失败', paused: '已暂停' } as Record<string, string>)[status] || status; }
+function statusText(status: string) { return ({ queued: '排队中', running: '进行中', completed: '已完成', failed: '执行失败', paused: '已暂停' } as Record<string, string>)[status] || status; }
 function timeAgo(value: string) { const days = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86400000)); return days ? `${days} 天前` : new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
 function dateText(value: string) { return new Date(value).toLocaleString('zh-CN'); }
 function Status({ task }: { task: WorkTask }) { return <span className={`task-badge badge-${task.status}`}>{task.status === 'running' && <LoaderCircle size={13} className="spin" />}{statusText(task.status)}</span>; }

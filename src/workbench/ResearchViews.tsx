@@ -10,8 +10,8 @@ import { BatchPage } from './BatchViews';
 import { batchApi, type Baseline } from './batchApi';
 import { VolumeBaseline, PunctuationComparison, insertedPunctuation } from './VolumeCompare';
 
-export const unitStatus = { working: '整理中', review: '待复核', approved: '已审定' };
-export const unitKind = { collation: '点校', translation: '翻译', reading: '阅读与笔记' };
+const unitStatus = { working: '整理中', review: '待复核', approved: '已审定' };
+const unitKind = { collation: '点校', translation: '翻译', reading: '阅读与笔记' };
 const noteNames = { variant: '异文 / 校记', citation: '引文溯源', question: '疑难问题', ai: 'AI 建议' };
 
 export function ProjectOverview({ activity, onBatch, preparedCount, project, materials, units, tasks, onWork, onMaterials, onPreprocess, onImport, onConfigure, onTask, selectedUnitId }: { activity?: { id: string; status: string; total: number; ended: number } | null; onBatch(): void; preparedCount: number; selectedUnitId?: string; project: Project; materials: Material[]; units: ResearchUnit[]; tasks: WorkTask[]; onWork(id?: string): void; onMaterials(): void; onPreprocess(): void; onImport(): void; onConfigure(): void; onTask(id: string): void }) {

@@ -169,11 +169,10 @@ function registerApi() {
   ipcMain.on('api:knowledge-stream-cancel', (event, id) => {
     if (trustedSender(event)) knowledgeStreams.get(`${event.sender.id}:${id}`)?.abort();
   });
-  ipcMain.handle('file:pick-pdf', async (event, includeImages = false) => {
+  ipcMain.handle('file:pick-documents', async event => {
     if (!trustedSender(event)) throw new Error('不受信任的工作台窗口');
     const images = ['png', 'jpg', 'jpeg', 'tif', 'tiff'];
-    const filters = [{ name: includeImages ? '研究资料（含扫描图片）' : '研究资料（PDF / Word / TXT）', extensions: ['pdf', 'docx', 'doc', 'txt', ...(includeImages ? images : [])] }, { name: 'PDF', extensions: ['pdf'] }, { name: 'Word', extensions: ['docx', 'doc'] }, { name: '文字', extensions: ['txt'] }];
-    if (includeImages) filters.push({ name: '扫描图片', extensions: images });
+    const filters = [{ name: '研究资料（含扫描图片）', extensions: ['pdf', 'docx', 'doc', 'txt', ...images] }, { name: 'PDF', extensions: ['pdf'] }, { name: 'Word', extensions: ['docx', 'doc'] }, { name: '文字', extensions: ['txt'] }, { name: '扫描图片', extensions: images }];
     const result = await dialog.showOpenDialog(windowRef, { properties: ['openFile', 'multiSelections'], filters });
     if (result.canceled) return [];
     return result.filePaths.map((filePath) => { const bytes = Uint8Array.from(fs.readFileSync(filePath)); return { name: path.basename(filePath), data: bytes.buffer }; });

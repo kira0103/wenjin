@@ -2,9 +2,6 @@
 import hashlib
 import json
 import sqlite3
-import shutil
-import tempfile
-import zipfile
 from contextlib import closing
 from pathlib import Path
 
@@ -13,70 +10,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from . import repository as r
 from .audit import read_only
-from .backup import pg_command
 from .ingestion import publish
 from .project_sources import ProjectSourceService
 from .execution import activated
-
-
-def upgrade_backup(root):
-    from sqlalchemy import text
-    # The same exclusive lock is respected by every catalog transaction.
-    # SQLite's write reservation also freezes projects and execution records.
-    with r.database.engine(root).begin() as lock,closing(sqlite3.connect(root/'library.sqlite',timeout=15)) as local:
-        lock.execute(text('SELECT pg_advisory_xact_lock(824171,2)'))
-        local.execute('BEGIN IMMEDIATE')
-        return _upgrade_backup_locked(root,lock)
-
-
-def _upgrade_backup_locked(root,lock):
-    """Preserve pre-upgrade SQLite even when legacy assets are missing."""
-    target=root/'backups'/('before-0.5.0-'+r.uid()+'.zip');target.parent.mkdir(parents=True,exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='shixue-upgrade-') as directory:
-        stage=Path(directory);paths=[]
-        if (root/'library.sqlite').exists():
-            with closing(read_only(root/'library.sqlite')) as old,closing(sqlite3.connect(stage/'library.sqlite')) as copy:
-                old.backup(copy)
-            paths.append(stage/'library.sqlite')
-        exists=r.execute(lock,"SELECT to_regclass('public.kb_schema_version')").scalar()
-        revision=r.execute(lock,'SELECT version_num FROM kb_schema_version').scalar() if exists else None
-        pg_command(root,'pg_dump',stage/'knowledge.dump');paths.append(stage/'knowledge.dump')
-        for folder in ('assets','artifacts','checkpoints'):
-            if (root/folder).exists():
-                for source in (root/folder).rglob('*'):
-                    if not source.is_file() or source.name.endswith(('-wal','-shm','.tmp')):continue
-                    if source.suffix=='.sqlite':
-                        output=stage/source.relative_to(root);output.parent.mkdir(parents=True,exist_ok=True)
-                        with closing(read_only(source)) as old,closing(sqlite3.connect(output)) as copy:old.backup(copy)
-                        paths.append(output)
-                    else:paths.append(source)
-        if (root/'knowledge.json').exists():paths.append(root/'knowledge.json')
-        manifest={'format':1,'schema_revision':revision,'workspace_key':hashlib.sha256(str(root.resolve()).casefold().encode()).hexdigest(),'credentials_included':False,'models_included':False,
-                  'material_paths':{},'files':{},'purpose':'upgrade-0.5.0'}
-        if (stage/'library.sqlite').exists():
-            with closing(read_only(stage/'library.sqlite')) as db:
-                for identifier,path in db.execute('SELECT id,asset_path FROM materials'):
-                    candidate=Path(path);candidate=candidate if candidate.is_absolute() else root/candidate
-                    if not candidate.is_file():continue
-                    if root.resolve() in candidate.resolve().parents:
-                        relative=candidate.resolve().relative_to(root.resolve())
-                        if candidate.resolve() not in [p.resolve() for p in paths]:paths.append(candidate)
-                    else:
-                        # Preserve external originals inside the portable backup.
-                        relative=Path('assets/legacy-backup')/str(identifier)/candidate.name
-                        copied=stage/relative;copied.parent.mkdir(parents=True,exist_ok=True)
-                        shutil.copyfile(candidate,copied);paths.append(copied)
-                    manifest['material_paths'][identifier]=relative.as_posix()
-        temporary=target.with_suffix('.partial')
-        with zipfile.ZipFile(temporary,'w',zipfile.ZIP_DEFLATED) as archive:
-            for source in paths:
-                relative=source.relative_to(stage) if stage in source.parents else source.relative_to(root)
-                name=relative.as_posix()
-                with source.open('rb') as stream:manifest['files'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
-                archive.write(source,name)
-            archive.writestr('manifest.json',r.j(manifest))
-        temporary.replace(target)
-    return target.relative_to(root).as_posix()
 
 
 class CatalogActivation:

@@ -240,7 +240,7 @@ export default function App() {
     if (uploading) return;
     const importProject = destinationProject;
     try {
-      const files = await (window.desktop.pickDocuments || window.desktop.pickPdf)();
+      const files = await window.desktop.pickDocuments();
       if (!files.length) return;
       setUploading(true);
       let latest: string | null = null;
@@ -388,7 +388,7 @@ export default function App() {
           {page === 'settings' && settingsSection === 'data' && <><WorkspaceStorage /><KnowledgeSettings /></>}
           {page === 'settings' && settingsSection !== 'model' && settingsSection !== 'appearance' && <KnowledgeWorkbench key={settingsSection} section="management" initialTab={settingsSection==='data'?'maintenance':settingsSection==='assistants'?'assistant-settings':settingsSection==='retrieval'?'retrieval-settings':'unclassified'} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('settings')} onRegisterLeave={registerLeave} />}
 
-          {(page === 'knowledge' || page === 'global-library' && !globalReaderId) && <KnowledgeWorkbench onWorkingInput={async(id,destination)=>{if(destination!==projectId)await switchProject(destination);await changed();if(await navigate('materials')){setSelectedId(id);setPendingTool(null);updateView({taskKind:'punctuate',tab:'reader',sideOpen:true},id);}}} key={'library-'+libraryReset} incomingSource={libraryIncoming} onIncomingUsed={clearLibraryIncoming} onNavigateAssistant={(query,id,filter)=>{setAssistantDraft({query,id,filter});openAssistant();}} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('settings')} onRegisterLeave={registerLeave} />}
+          {(page === 'knowledge' || page === 'global-library' && !globalReaderId) && <KnowledgeWorkbench key={'library-'+libraryReset} incomingSource={libraryIncoming} onIncomingUsed={clearLibraryIncoming} onNavigateAssistant={(query,id,filter)=>{setAssistantDraft({query,id,filter});openAssistant();}} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('settings')} onRegisterLeave={registerLeave} />}
         </>}
       </div>
       <footer className="statusbar"><div><span className={`status-live-dot ${serviceError ? 'status-offline' : ''}`} />{serviceError ? '资料服务连接失败' : data ? '资料服务已连接' : '正在连接资料服务'}</div><span>当前项目 · {materials.length} 份材料</span><span className="statusbar-shortcut">按 <kbd>Ctrl K</kbd> 搜索</span></footer>

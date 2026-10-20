@@ -34,11 +34,11 @@ Object.assign(names,{document_batch:'导入文档与目录',document_import:'导
 
 type Tab='files'|'documents'|'core'|'search'|'assistant'|'assistant-settings'|'jobs'|'maintenance'|'retrieval-settings'|'unclassified';
 type RunSource={kind:'research'|'collaboration';id:string};
-export type LibraryLocation={id:string;asset?:string;page?:number};
+type LibraryLocation={id:string;asset?:string;page?:number};
 export default function KnowledgeWorkbench({projects,projectId,onChanged,onSettings,onRegisterLeave,section='library',initialTab,incomingSource,onIncomingUsed,onNavigateLibrary,onNavigateAssistant,assistantDraft}: {
   projects:Project[];projectId:string;onChanged():Promise<void>;onSettings():void;onRegisterLeave(callback:(()=>Promise<boolean>)|null):void;
   section?:'library'|'assistant'|'management';initialTab?:Tab;incomingSource?:LibraryLocation|null;onIncomingUsed?():void;
-  onNavigateLibrary?(value:LibraryLocation):void;onWorkingInput?(id:string,projectId:string):Promise<void>;onNavigateAssistant?(query:string,id?:string,filter?:LibraryScope):void;assistantDraft?:{query:string;id?:string;filter?:LibraryScope}|null;
+  onNavigateLibrary?(value:LibraryLocation):void;onNavigateAssistant?(query:string,id?:string,filter?:LibraryScope):void;assistantDraft?:{query:string;id?:string;filter?:LibraryScope}|null;
 }) {
   const [tab,setTab]=useState<Tab>(initialTab||(section==='assistant'?'assistant':'files')),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
   const [coreLocation,setCoreLocation]=useState<CoreLocation|null>(null),[selection,setSelection]=useState<{id:string;title:string;filter?:LibraryScope}|null>(null);

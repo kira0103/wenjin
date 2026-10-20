@@ -4,7 +4,7 @@ import { request, type Project } from './api';
 import { Modal } from './Pages';
 import './submissions.css';
 
-export const paperStates = { writing: '撰写中', ready: '待投稿', review: '审稿中', revision: '返修中', accepted: '已录用', published: '已发表', rejected: '已拒稿' };
+const paperStates = { writing: '撰写中', ready: '待投稿', review: '审稿中', revision: '返修中', accepted: '已录用', published: '已发表', rejected: '已拒稿' };
 type State = keyof typeof paperStates;
 type Journal = { id: string; name: string; discipline: string; level: string; website: string; submission_url: string; notes: string; favorite: boolean | number; revision: number };
 type Paper = { id: string; title: string; authors: string; discipline: string; priority: string; progress: number; status: State; target_journal_id: string | null; project_id: string | null; source_kind: 'artifact' | 'unit' | null; source_id: string | null; source_title: string; notes: string; archived: number | boolean; revision: number; updated_at: string; current_journal_name?: string; submitted_date?: string; last_date?: string; round?: number; journal_ids?: string[] };

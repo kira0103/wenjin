@@ -1,5 +1,5 @@
 export type ThemeChoice='light'|'dark'|'system';
-export type LayoutPreferences={leftOpen:boolean;rightOpen:boolean;leftWidth:number;rightWidth:number};
+type LayoutPreferences={leftOpen:boolean;rightOpen:boolean;leftWidth:number;rightWidth:number};
 const themeKey='shixue-appearance-v1',layoutKey='shixue-layout-v1';
 export function readTheme():ThemeChoice {try{const v=localStorage.getItem(themeKey);return v==='dark'||v==='system'?v:'light';}catch{return 'light';}}
 export function applyTheme(choice:ThemeChoice){

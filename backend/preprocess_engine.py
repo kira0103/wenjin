@@ -110,7 +110,7 @@ def analyze(source: str, recipe: Recipe) -> dict:
         if lines[i][2]:
             next_nonempty = lines[i][2]
     hebi_mode = any(r.match == 'hebi_volume' for r in recipe.rules)
-    for i, (start, end, text) in enumerate(lines):
+    for i, (start, _end, text) in enumerate(lines):
         if not text:
             continue
         prior = previous_nonempty

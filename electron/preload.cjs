@@ -12,8 +12,7 @@ contextBridge.exposeInMainWorld('desktop', Object.freeze({
     const promise = ipcRenderer.invoke('api:knowledge-stream', { id, body }).finally(() => ipcRenderer.removeListener(channel, handler));
     return { promise, cancel: () => { ipcRenderer.send('api:knowledge-stream-cancel', id); ipcRenderer.removeListener(channel, handler); } };
   },
-  pickPdf: () => ipcRenderer.invoke('file:pick-pdf'),
-  pickDocuments: () => ipcRenderer.invoke('file:pick-pdf', true),
+  pickDocuments: () => ipcRenderer.invoke('file:pick-documents'),
   chooseLiteratureSource: mode => ipcRenderer.invoke('library:choose-source',mode),
   saveFile: (file) => ipcRenderer.invoke('file:save', file),
   restoreBackup: () => ipcRenderer.invoke('library:restore-backup'),

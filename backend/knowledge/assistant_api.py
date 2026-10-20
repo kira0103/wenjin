@@ -146,7 +146,7 @@ def register(router,root,resolve_scope,model_settings):
     @router.post('/skills/{identifier}/tests')
     def test(identifier:UUID,payload:Trial):
         with r.database.transaction(root()) as c:
-            current=registry.row(c,identifier,'skill',lock=True)
+            registry.row(c,identifier,'skill',lock=True)
             version_id=payload.version_id or registry.publish(c,identifier,payload.edit_version,activate=False)
             value=registry.release(c,version_id,'skill')
             if str(value['definition_id'])!=str(identifier):raise HTTPException(400,'技能版本不匹配')

@@ -37,7 +37,7 @@ app.whenReady().then(async()=>{
   }
   await until(async()=>!(await api('/api/knowledge/jobs')).some(j=>['queued','running'].includes(j.state)),'index');
   ipcMain.handle('api:request',async(_event,req)=>{const res=await fetch(base+req.path,{method:req.method||'GET',headers:{'X-App-Token':token,'Content-Type':'application/json'},body:req.body===undefined?undefined:JSON.stringify(req.body)});const contentType=res.headers.get('content-type')||'';return{status:res.status,contentType,body:contentType.includes('application/octet-stream')?await res.arrayBuffer():await res.json()};});
-  ipcMain.handle('file:pick-pdf',()=>[]);ipcMain.handle('file:save',(_event,value)=>{if(value.filename.endsWith('.zip')){fs.writeFileSync(path.join(output,'gui-exported-skill.zip'),Buffer.from(value.data));exported=true;}return true;});ipcMain.handle('app:open-external',()=>{});
+  ipcMain.handle('file:pick-documents',()=>[]);ipcMain.handle('file:save',(_event,value)=>{if(value.filename.endsWith('.zip')){fs.writeFileSync(path.join(output,'gui-exported-skill.zip'),Buffer.from(value.data));exported=true;}return true;});ipcMain.handle('app:open-external',()=>{});
   win=new BrowserWindow({width:1550,height:1200,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(project,'electron','preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
   win.webContents.on('console-message',(event,...args)=>{const msg=event.message||args[1]||'';if(msg)rendererErrors.push(String(msg));});
   await win.loadFile(path.join(project,'dist','index.html'));await until(()=>has('文献库'),'navigation');await click('文献库');await until(()=>has('新建文献'),'catalog');await click('助手配置');await until(()=>has('新增技能'),'skill center');

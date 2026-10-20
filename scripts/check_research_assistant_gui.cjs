@@ -36,7 +36,7 @@ app.whenReady().then(async()=>{
   const response=await fetch(base+`/api/knowledge/editions/${edition.id}/imports?filename=research.txt`,{method:'POST',headers:{'X-App-Token':token,'Content-Type':'application/octet-stream'},body:Buffer.from(body)});if(!response.ok)throw Error('Import failed');
   await until(async()=>!(await api('/api/knowledge/jobs')).some(j=>['queued','running'].includes(j.state)),'index');
   ipcMain.handle('api:request',async(_event,req)=>{const res=await fetch(base+req.path,{method:req.method||'GET',headers:{'X-App-Token':token,'Content-Type':'application/json'},body:req.body===undefined?undefined:JSON.stringify(req.body)});return{status:res.status,contentType:res.headers.get('content-type'),body:await res.json()};});
-  ipcMain.handle('file:pick-pdf',()=>[]);ipcMain.handle('file:save',()=>false);ipcMain.handle('app:open-external',()=>{});
+  ipcMain.handle('file:pick-documents',()=>[]);ipcMain.handle('file:save',()=>false);ipcMain.handle('app:open-external',()=>{});
   win=new BrowserWindow({width:1500,height:1150,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(project,'electron','preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
   win.webContents.on('console-message',(event,...args)=>{const message=event.message||args[1]||'';if(message)rendererErrors.push(String(message));});
   await win.loadFile(path.join(project,'dist','index.html'));await until(()=>has('文献库'),'navigation');await click('文献库');await until(()=>has('新建文献'),'catalog');await click('研究助手');

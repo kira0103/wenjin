@@ -94,7 +94,7 @@ def material_info(db, material_id: str, project_id: str | None = None, *, histor
         from knowledge.execution import activated
         from knowledge.compat import material_info as unified_info,snapshot,snapshot_info
     frozen=snapshot(db,material_id)
-    if frozen:return snapshot_info(db,frozen)
+    if frozen:return snapshot_info(frozen)
     if activated(db) and not historical:
         try:return unified_info(db,material_id,project_id)
         except Exception:

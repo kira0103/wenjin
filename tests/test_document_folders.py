@@ -1,6 +1,5 @@
 import os,json,uuid,unittest,tempfile,hashlib
 from pathlib import Path
-from unittest.mock import patch
 from fastapi import HTTPException
 from tests.test_research_assistant import ResearchNative as _Fixture
 from backend.knowledge import repository as r
@@ -121,14 +120,16 @@ class DocumentFoldersNative(unittest.TestCase):
                     db.execute("UPDATE kb_schema_version SET version_num='kb0011'")
             finally:manager.stop()
             frozen=hashlib.sha256((root/'library.sqlite').read_bytes()).hexdigest()
+            backups=root/'backups'
+            before={p.relative_to(backups):hashlib.sha256(p.read_bytes()).hexdigest() for p in backups.rglob('*') if p.is_file()}
             product=ProductDatabase(root,'internal')
-            with patch('backend.knowledge.activation.upgrade_backup',side_effect=AssertionError('不应自动备份')):
-                try:
-                    product.start();self.assertFalse(product.startup_error)
-                    self.assertEqual(r.database.health(root)['schema_revision'],'kb0012')
-                    self.assertEqual(hashlib.sha256((root/'library.sqlite').read_bytes()).hexdigest(),frozen)
-                    self.assertFalse(list((root/'backups').glob('*.zip')))
-                finally:product.stop()
+            try:
+                product.start();self.assertFalse(product.startup_error)
+                self.assertEqual(r.database.health(root)['schema_revision'],'kb0012')
+                self.assertEqual(hashlib.sha256((root/'library.sqlite').read_bytes()).hexdigest(),frozen)
+                after={p.relative_to(backups):hashlib.sha256(p.read_bytes()).hexdigest() for p in backups.rglob('*') if p.is_file()}
+                self.assertEqual(after,before)
+            finally:product.stop()
 
 
 del _Fixture

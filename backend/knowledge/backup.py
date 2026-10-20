@@ -47,7 +47,6 @@ def pg_command(root,operation,filename=None,url=None):
     engine=r.database.engine(root)
     url=url or engine.url
     environment=os.environ.copy()
-    from .config import managed_url
     from .managed import runtime_directory
     bundled=runtime_directory()/'bin'/(operation+'.exe' if os.name=='nt' else operation)
     executable=str(bundled) if bundled.is_file() else shutil.which(operation)
@@ -125,7 +124,7 @@ def export_bundle(root,check=lambda:None,progress=lambda *args:None):
             assets=[path for path in assets if not (path.suffix=='.sqlite' and 'checkpoints' in path.parts)]
             with zipfile.ZipFile(temporary,'w',compression=zipfile.ZIP_DEFLATED) as archive:
                 all_files=[(path,path.name) for path in paths]+[(path,(path.relative_to(stage) if stage in path.parents else path.relative_to(root)).as_posix()) for path in assets]+checkpoints
-                for index,(path,name) in enumerate(all_files):
+                for path,name in all_files:
                     # Cancellation heartbeat needs DB writes, which are deliberately paused here.
                     with path.open('rb') as stream:manifest['files'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
                     archive.write(path,name)
