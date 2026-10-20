@@ -35,7 +35,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.concurrency import run_in_threadpool
 try:
     from backend.importers import parse_document
-    from backend import research, preprocessing, collation, collation_debug, deletion, submissions, research_results
+    from backend import research, preprocessing, collation, collation_debug, deletion, submissions, research_results, english_journals
     from backend.collation_prompt import request_options, BOOK_TITLE_RULES
     from backend.preprocess_engine import punctuation_error
     from backend.model_transport import cancellable_post
@@ -50,6 +50,7 @@ except ModuleNotFoundError:
     import collation_debug
     import deletion
     import submissions
+    import english_journals
     import research_results
     from collation_prompt import request_options, BOOK_TITLE_RULES
     from preprocess_engine import punctuation_error
@@ -1046,6 +1047,7 @@ batch_runner = collation.register(app, connection, utc_now, lambda messages, mod
 debug_controller = collation_debug.register(app, connection, utc_now, lambda messages, model, budget: request_completion(messages, model, budget), read_model_settings, get_settings, service, batch_runner)
 deletion.register(app,connection,utc_now,service)
 submissions.register(app, connection)
+english_journals.register(app)
 research_results.register(app, connection, utc_now, service)
 register_knowledge(app, service, connection, request_completion, read_model_settings)
 
