@@ -18,7 +18,11 @@ from .audit import read_only
 
 
 def workspace_key(root):
-    return hashlib.sha256(str(Path(root).resolve()).casefold().encode()).hexdigest()
+    try:
+        from backend.identity import workspace_key as identity_key
+    except ModuleNotFoundError:
+        from identity import workspace_key as identity_key
+    return identity_key(root)
 
 
 def restore_workspace(connection,destination,manifest,native=False):

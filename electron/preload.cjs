@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('desktop', Object.freeze({
+  isRemote: () => ipcRenderer.invoke('connection:is-remote'),
+  connectionInfo: () => ipcRenderer.invoke('connection:info'),
+  connectService: config => ipcRenderer.invoke('connection:connect', config),
   request: (request) => ipcRenderer.invoke('api:request', request),
   serviceStatus: () => ipcRenderer.invoke('service:status'),
   setTheme: theme => ipcRenderer.invoke('window:theme',theme),

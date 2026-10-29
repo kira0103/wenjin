@@ -2,13 +2,17 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
-import hashlib
+try:
+    from backend.identity import workspace_key
+except ModuleNotFoundError:
+    from identity import workspace_key
 from threading import RLock
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 
 from .config import connection_url,managed_url,managed_failure
+from .shared import private_schema, library_key, SHARED_TABLES
 
 SCHEMA_REVISION = "kb0012"
 REQUIRED_TABLES = ("kb_libraries", "kb_works", "kb_editions", "kb_assets",
@@ -28,10 +32,14 @@ def build_engine(url) -> Engine:
         raise ValueError("文献库需要 PostgreSQL 连接")
     parsed = parsed.set(drivername="postgresql+psycopg")
     # URL options cannot override the connection / query timeout.
+    schema = private_schema()
+    options = "-c statement_timeout=5000 -c lock_timeout=3000"
+    if schema:
+        options += ' -c search_path=' + schema + ',public'
     return create_engine(parsed, pool_pre_ping=True, pool_size=4, max_overflow=4,
                          pool_timeout=5, hide_parameters=True,
                          connect_args={"connect_timeout": 3,
-                                       "options": "-c statement_timeout=5000 -c lock_timeout=3000"})
+                                       "options": options})
 
 
 class KnowledgeDatabase:
@@ -49,7 +57,7 @@ class KnowledgeDatabase:
 
     def engine(self, root: Path) -> Engine | None:
         url = connection_url(root)
-        identity = (str(root.resolve()), url)
+        identity = (str(root.resolve()), url, private_schema())
         with self._lock:
             if identity != self._identity:
                 self.dispose()
@@ -68,7 +76,7 @@ class KnowledgeDatabase:
                 connection=connection.execution_options(isolation_level=isolation_level)
             with connection.begin():
                 connection.execute(text("SELECT pg_advisory_xact_lock_shared(824171,2)"))
-                workspace=hashlib.sha256(str(root.resolve()).casefold().encode()).hexdigest()
+                workspace=library_key(workspace_key(root))
                 connection.execute(text("SELECT set_config('shixue.workspace',:key,true)"),{'key':workspace})
                 yield connection
 
@@ -92,7 +100,7 @@ class KnowledgeDatabase:
                 revisions = list(connection.execute(text("SELECT version_num FROM public.kb_schema_version")).scalars()) if version_table else []
                 result["schema_revision"] = revisions[0] if len(revisions) == 1 else None
                 result["missing_tables"] = [table for table in REQUIRED_TABLES if not connection.execute(
-                    text("SELECT to_regclass(:name)"), {"name": "public." + table}).scalar_one()]
+                    text("SELECT to_regclass(:name)"), {"name": table}).scalar_one()]
                 role = connection.execute(text(
                     "SELECT rolsuper,rolcreatedb,rolcreaterole FROM pg_roles WHERE rolname=current_user")).one()
                 schema_create = connection.execute(text(
@@ -104,11 +112,14 @@ class KnowledgeDatabase:
                 internal=managed_url(root) is not None
                 result['mode']='internal' if internal else 'external'
                 privileges_ok = not result["missing_tables"] and all(connection.execute(text(
-                    "SELECT has_table_privilege(current_user,:name,'SELECT') "
-                    "AND has_table_privilege(current_user,:name,'INSERT') "
-                    "AND has_table_privilege(current_user,:name,'UPDATE') "
-                    "AND has_table_privilege(current_user,:name,'DELETE')"),
-                    {"name": "public." + name}).scalar_one() for name in REQUIRED_TABLES)
+                    "SELECT has_table_privilege(current_user,:name,'SELECT') AND "
+                    "(:readonly OR (has_table_privilege(current_user,:name,'INSERT') AND "
+                    "has_table_privilege(current_user,:name,'UPDATE') AND has_table_privilege(current_user,:name,'DELETE')))"),
+                    {"name": name, "readonly": bool(private_schema() and name in SHARED_TABLES)}).scalar_one() for name in REQUIRED_TABLES)
+                if private_schema():
+                    result['mode'] = 'shared-library'
+                    layout = connection.execute(text('SELECT layout,revision FROM wj_private_schema_version')).one()
+                    privileges_ok = privileges_ok and layout == (1, SCHEMA_REVISION)
                 result["data_access"] = privileges_ok
                 result["ready"] = (set(result["extensions"]) == {"vector", "pg_trgm"}
                                    and revisions == [SCHEMA_REVISION] and privileges_ok

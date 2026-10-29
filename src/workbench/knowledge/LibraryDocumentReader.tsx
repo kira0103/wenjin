@@ -8,7 +8,7 @@ type Document={id:string;title:string;label:string;authors_json:string[];date_la
   files:{id:string;filename:string;position_kind:string;page_count:number}[];blocks:Block[]};
 
 export default function LibraryDocumentReader({document,asset,page,onAsset,onPage,onBack,onEdit,onExcerpt,image}:{
-  document:Document;asset:string;page:number;onAsset(id:string):void;onPage(n:number):void;onBack():void;onEdit():void;onExcerpt(block:Block):void;image:string;
+  document:Document;asset:string;page:number;onAsset(id:string):void;onPage(n:number):void;onBack():void;onEdit?:()=>void;onExcerpt(block:Block):void;image:string;
 }) {
   const [zoom,setZoom]=useState<ReaderZoom>('fit'),[pdfPages,setPdfPages]=useState(0),[textOpen,setTextOpen]=useState(false),[info,setInfo]=useState(false);
   const file=document.files.find(f=>f.id===asset),pdf=!!file?.filename.toLowerCase().endsWith('.pdf');
@@ -25,6 +25,6 @@ export default function LibraryDocumentReader({document,asset,page,onAsset,onPag
       </>}</div>
       {pdf&&textOpen&&<aside className="kb-document-transcript"><div className="kb-transcript-heading"><h3>第 {page} 页提取文字</h3><button className="button-quiet" onClick={()=>setTextOpen(false)}>收起</button></div>{blocks.length?blocks.map(b=><article key={b.id}><pre>{b.body}</pre><button className="button-quiet" onClick={()=>onExcerpt(b)}>保存摘录</button></article>):<p className="scope-note">此页暂无提取文字，可继续阅读 PDF 原件。</p>}</aside>}
     </div>
-    {info&&<Modal title="文献信息" onClose={()=>setInfo(false)}><dl className="kb-document-info"><dt>题名</dt><dd>{document.title}</dd><dt>作者</dt><dd>{document.authors_json.join('、')||'未填写'}</dd><dt>版本 / 卷期</dt><dd>{document.label||'未填写'}</dd><dt>年代</dt><dd>{document.date_label||'未填写'}</dd><dt>出版者</dt><dd>{document.publisher||'未填写'}</dd>{document.doi&&<><dt>DOI</dt><dd>{document.doi}</dd></>}</dl><div className="modal-actions"><button className="button-secondary" onClick={()=>setInfo(false)}>关闭</button><button className="button-primary" onClick={()=>{setInfo(false);onEdit();}}>编辑文献信息</button></div></Modal>}
+    {info&&<Modal title="文献信息" onClose={()=>setInfo(false)}><dl className="kb-document-info"><dt>题名</dt><dd>{document.title}</dd><dt>作者</dt><dd>{document.authors_json.join('、')||'未填写'}</dd><dt>版本 / 卷期</dt><dd>{document.label||'未填写'}</dd><dt>年代</dt><dd>{document.date_label||'未填写'}</dd><dt>出版者</dt><dd>{document.publisher||'未填写'}</dd>{document.doi&&<><dt>DOI</dt><dd>{document.doi}</dd></>}</dl><div className="modal-actions"><button className="button-secondary" onClick={()=>setInfo(false)}>关闭</button>{onEdit&&<button className="button-primary" onClick={()=>{setInfo(false);onEdit();}}>编辑文献信息</button>}</div></Modal>}
   </section>;
 }

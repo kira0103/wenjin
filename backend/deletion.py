@@ -49,7 +49,7 @@ def project_preview(db,identifier):
         try:counts['materials']=len(compat.catalog_materials(db,identifier))
         except Exception:counts['materials']=0
     busy=any(db.execute(f"SELECT 1 FROM {table} WHERE project_id=? AND status IN ({states}) LIMIT 1",(identifier,)).fetchone() for table,states in {
-        'collation_batches':"'queued','running','pausing','stopping'",'tasks':"'queued','running'",'preprocess_jobs':"'queued','running'",'collation_debug_runs':"'running'"}.items())
+        'collation_batches':"'queued','running','pausing','stopping'",'tasks':"'queued','running'",'preprocess_jobs':"'queued','running'",'collation_debug_runs':"'queued','running'"}.items())
     value={'id':identifier,'name':row['name'],'counts':counts,'can_delete':not busy,
            'revision_sum':db.execute('SELECT coalesce(sum(revision),0) FROM research_units WHERE project_id=?',(identifier,)).fetchone()[0]}
     value['preview_token']=token(value)

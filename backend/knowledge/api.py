@@ -232,6 +232,9 @@ def register_features(router,root,legacy_connection,completion,model_settings):
     def retry(identifier:UUID):
         with r.database.transaction(root()) as connection:
             current=r.one(connection,"SELECT kind FROM kb_jobs WHERE id=:id AND workspace_key=current_setting('shixue.workspace')",id=identifier)
+            from .shared import read_only_library
+            if read_only_library() and current['kind'] in {'import','index','document_batch','document_import','core_import','migration','export'}:
+                raise HTTPException(403,'公共文献处理由管理员维护，旧任务记录继续保留')
             if current['kind'] in ('research','collaboration'):raise HTTPException(409,'请在研究助手中使用“重新研究”，以核验最新范围和模型配置')
             result=r.one(connection,"UPDATE kb_jobs SET state='queued',owner=NULL,error='',progress=0,attempts=0 WHERE id=:id AND workspace_key=current_setting('shixue.workspace') AND state IN ('failed','cancelled') RETURNING *",id=identifier)
         worker.start(root());return result

@@ -1,3 +1,4 @@
+import { workspaceStorage as localStorage } from '../storage';
 import { readQuestion } from './assistantDrafts';
 import { useEffect, useState } from 'react';
 import { request } from '../api';

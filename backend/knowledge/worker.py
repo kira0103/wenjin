@@ -12,12 +12,15 @@ class Cancelled(Exception):pass
 
 class Worker:
     def __init__(self):
+        self.enabled=True
         self.stop_event=threading.Event();self.lock=threading.RLock();self.thread=None;self.root=None
         self.sync_callback=None
         self.research_model_settings=None
         self.research_completion=None
 
     def start(self,root):
+        if not self.enabled:
+            return
         with self.lock:
             if self.thread and self.thread.is_alive():
                 return

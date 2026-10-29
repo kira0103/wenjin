@@ -1,0 +1,21 @@
+[Unit]
+Description=Wenjin Web portal and admin console
+After=network.target
+
+[Service]
+Type=simple
+User=wenjin
+Group=wenjin
+WorkingDirectory=/opt/wenjin
+EnvironmentFile=/etc/wenjin/portal.env
+ExecStart=/opt/wenjin/.venv/bin/python -m backend.portal --data-dir /var/lib/wenjin-portal --ui-dir /opt/wenjin/dist --port 8765
+# Workspace hosts and their jobs remain alive when only the portal restarts.
+# For full maintenance: stop the portal, then run backend.portal --stop-workspaces.
+KillMode=process
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

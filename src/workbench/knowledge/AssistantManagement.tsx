@@ -1,3 +1,5 @@
+import { send } from '../transport';
+import { platform } from '../platform';
 import { useEffect, useRef, useState } from 'react';
 import { request } from '../api';
 import MarkdownPreview from './MarkdownPreview';
@@ -71,7 +73,7 @@ export default function AssistantManagement({onDirtyChange,onTest}:{onDirtyChang
           <button className="button-secondary" disabled={busy||chosen.revoked||dirty} onClick={()=>void act(()=>command('activate',{version_id:chosen.id}))}>设为默认版本</button>
           <button className="button-secondary" disabled={busy} onClick={()=>{if(leave()){setDraft({...chosen.content,edit_version:item.edit_version});setFiles(JSON.stringify(chosen.content.files,null,2));setDirty(true);}}}>从此版本编辑草稿</button>
           {kind==='skills'&&<><button className="button-secondary" disabled={chosen.revoked||dirty} onClick={()=>onTest(item.id,chosen.id)}>用文献测试此版本</button>
-            <button className="button-secondary" disabled={busy||chosen.revoked} onClick={()=>void act(async()=>{const response=await window.desktop.request({path:`/api/knowledge/skills/${item.id}/versions/${chosen.id}/export`});if(response.status!==200||!(response.body instanceof ArrayBuffer))throw new Error('技能包导出失败');await window.desktop.saveFile({filename:item.slug+'-v'+chosen.number+'.zip',data:response.body});})}>导出技能包</button></>}
+            <button className="button-secondary" disabled={busy||chosen.revoked} onClick={()=>void act(async()=>{const response=await send({path:`/api/knowledge/skills/${item.id}/versions/${chosen.id}/export`});if(response.status!==200||!(response.body instanceof ArrayBuffer))throw new Error('技能包导出失败');await platform.saveFile({filename:item.slug+'-v'+chosen.number+'.zip',data:response.body});})}>导出技能包</button></>}
           <button className="button-quiet" disabled={busy||chosen.revoked} onClick={()=>{if(window.confirm('撤销后将停止使用此版本的运行，并禁止后续调用。继续？'))void act(()=>command(`versions/${chosen.id}/revoke`,{}));}}>紧急撤销版本</button></div>
           <details><summary>历史版本与当前草稿对照</summary><div className="kb-version-diff"><div><h4>所选历史版本</h4><pre>{JSON.stringify(chosen.content,null,2)}</pre></div><div><h4>当前草稿</h4><pre>{JSON.stringify(draft,null,2)}{'\n参考文件草稿：\n'+files}</pre></div></div></details></>}
       </section>}

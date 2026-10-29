@@ -146,7 +146,7 @@ class KnowledgeWorkflows(PostgresFoundationIntegration):
                 for value in ('收入来自赋税。','[E1]'):
                     yield 'data: '+json.dumps({'choices':[{'delta':{'content':value}}]})
                 yield 'data: [DONE]'
-        with patch('backend.knowledge.streaming.httpx.stream',return_value=nullcontext(Response())),patch('backend.knowledge.streaming.keyring.get_password',return_value=None):
+        with patch('backend.knowledge.streaming.httpx.stream',return_value=nullcontext(Response())),patch('backend.credentials.keyring.get_password',return_value=None):
             output=''.join(events(self.root,{'query':'赋税','mode':'exact','scope':{'edition_ids':[document['id']]}},{'base_url':'http://127.0.0.1','model':'test'}))
         self.assertIn('"type": "delta"',output);self.assertIn('"type": "complete"',output)
         self.assertNotIn('"type": "error"',output)

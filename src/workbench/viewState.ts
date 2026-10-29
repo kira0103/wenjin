@@ -1,3 +1,4 @@
+import { workspaceStorage as localStorage } from './storage';
 import type { Material, MaterialDetail, TaskKind } from './api';
 
 export type WorkTab = 'reader' | 'references' | 'notes';

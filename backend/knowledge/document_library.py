@@ -55,6 +55,10 @@ class DocumentLibrary:
     def __init__(self, root):self.root=root
 
     def state(self,db,expected=None):
+        from .shared import read_only_library
+        if read_only_library():
+            row=r.execute(db,"SELECT * FROM kb_document_library_state WHERE workspace_key=current_setting('shixue.workspace')").mappings().first()
+            return dict(row) if row else {'revision':0,'initialized':True}
         r.execute(db,"INSERT INTO kb_document_library_state(workspace_key) VALUES(current_setting('shixue.workspace')) ON CONFLICT DO NOTHING")
         row=r.one(db,"SELECT * FROM kb_document_library_state WHERE workspace_key=current_setting('shixue.workspace') FOR UPDATE")
         if expected is not None and expected!=row['revision']:raise HTTPException(409,'资料目录已更新，请刷新后重试')
@@ -70,6 +74,8 @@ class DocumentLibrary:
 
     def sync(self,db,core_groups=None):
         """Only add missing references. Manual moves and names survive later scans."""
+        from .shared import read_only_library
+        if read_only_library():return
         state=self.state(db)
         # Include later source imports and active core revisions as well.
         for corpus in r.rows(db,'SELECT id,slug,name,source_path FROM kb_corpora'):

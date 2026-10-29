@@ -35,7 +35,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.concurrency import run_in_threadpool
 try:
     from backend.importers import parse_document
-    from backend import research, preprocessing, collation, collation_debug, deletion, submissions, research_results
+    from backend import research, preprocessing, collation, collation_debug, deletion, submissions, research_results, english_journals
     from backend.collation_prompt import request_options, BOOK_TITLE_RULES
     from backend.preprocess_engine import punctuation_error
     from backend.model_transport import cancellable_post
@@ -50,6 +50,7 @@ except ModuleNotFoundError:
     import collation_debug
     import deletion
     import submissions
+    import english_journals
     import research_results
     from collation_prompt import request_options, BOOK_TITLE_RULES
     from preprocess_engine import punctuation_error
@@ -68,6 +69,8 @@ class ServiceState:
     token: str = ""
     lock = threading.RLock()
     tasks: set[threading.Thread] = set()
+    mode: str = 'desktop'
+    embedded_workers: bool = True
 
 
 service = ServiceState()
@@ -79,11 +82,6 @@ app = FastAPI(title="史学工作台本地服务", version="0.5.0-rc.12", docs_u
 
 class TokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.url.path != "/health" and not secrets.compare_digest(request.headers.get("X-App-Token", ""), service.token):
-            return Response(status_code=403, content="forbidden")
-        host = request.client.host if request.client else ""
-        if host not in {"127.0.0.1", "::1", "testclient"}:
-            return Response(status_code=403, content="local connections only")
         if getattr(service,'catalog_maintenance',False) and request.method not in {'GET','HEAD'} and request.url.path not in {'/api/knowledge/activation','/api/service/exit'}:
             return Response(status_code=409,media_type='application/json',content=json.dumps({'detail':'文献库正在备份和升级，请等待完成'},ensure_ascii=False))
         if request.method not in {'GET','HEAD'} and service.root:
@@ -99,6 +97,13 @@ class TokenMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(TokenMiddleware)
+try:
+    from backend.auth import register as register_auth
+    from backend.credentials import model_key
+except ModuleNotFoundError:
+    from auth import register as register_auth
+    from credentials import model_key
+register_auth(app, service)
 
 
 @contextmanager
@@ -117,7 +122,12 @@ def connection():
         db.close()
 
 
-def initialize(root: Path):
+def initialize(root: Path, *, recover=True):
+    try:
+        from backend.identity import ensure_identity
+    except ModuleNotFoundError:
+        from identity import ensure_identity
+    ensure_identity(root)
     service.root = root
     for directory in (root / "assets", root / "artifacts", root / "checkpoints"):
         directory.mkdir(parents=True, exist_ok=True)
@@ -167,14 +177,15 @@ def initialize(root: Path):
             db.execute("INSERT INTO projects(id,name,description,created_at) VALUES(?,?,?,?)",
                        ("project-main", "我的研究", "论文、史料与研究笔记", utc_now()))
         research.migrate(db, root, utc_now)
-        preprocessing.migrate(db, root, utc_now)
+        preprocessing.migrate(db, root, utc_now, recover=recover)
         collation.migrate(db, root, utc_now)
         collation_debug.migrate(db, root, utc_now)
         migrate_execution(db)
         submissions.migrate(db)
         research_results.migrate(db)
         # Interrupted tasks are durable. Leave them visible with a recovery message.
-        db.execute("UPDATE tasks SET status='paused', error='工作台上次退出时任务未完成，可重新发起处理。', updated_at=? WHERE status IN ('running','queued')", (utc_now(),))
+        if recover:
+            db.execute("UPDATE tasks SET status='paused', error='工作台上次退出时任务未完成，可重新发起处理。', updated_at=? WHERE status IN ('running','queued')", (utc_now(),))
 
 
 def title_from_text(filename: str, text: str) -> str:
@@ -287,6 +298,18 @@ def read_model_settings():
 @app.get("/health")
 def health():
     return {"ok": True, "version": app.version}
+
+
+@app.get('/api/service/status')
+def service_status():
+    worker_ready = service.embedded_workers
+    if not worker_ready and service.root:
+        try:
+            value = json.loads((service.root / 'worker-status.json').read_text(encoding='utf-8'))
+            worker_ready = 0 <= time.time() - value['updated_at'] < 15
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return {'mode': service.mode, 'worker_ready': worker_ready, 'version': app.version}
 
 
 @app.on_event("startup")
@@ -571,7 +594,7 @@ def update_bibliography(book_id: str, payload: BibliographyCreate):
 def get_settings():
     settings = read_model_settings()
     try:
-        settings["has_api_key"] = bool(keyring.get_password("shixue-workbench", "model-api-key"))
+        settings["has_api_key"] = bool(model_key())
     except Exception:
         settings["has_api_key"] = False
     hostname = (urlparse(settings["base_url"]).hostname or "").lower()
@@ -581,12 +604,16 @@ def get_settings():
     except ValueError:
         pass
     settings["configured"] = bool(settings["base_url"] and settings["model"] and (settings["has_api_key"] or local))
-    settings["data_dir"] = str(service.root)
+    settings['api_key_managed'] = os.environ.get('SHIXUE_MODEL_API_KEY') is not None
+    settings['service_mode'] = service.mode
+    settings["data_dir"] = str(service.root) if service.mode == 'desktop' else ''
     return settings
 
 
 @app.put("/api/settings")
 def save_settings(payload: SettingsUpdate):
+    if payload.api_key is not None and os.environ.get('SHIXUE_MODEL_API_KEY') is not None:
+        raise HTTPException(409, '模型密钥由服务端环境变量管理')
     base_url = payload.base_url.strip().rstrip("/")
     model = payload.model.strip()
     if base_url:
@@ -617,8 +644,8 @@ def save_settings(payload: SettingsUpdate):
                 keyring.set_password("shixue-workbench", "model-api-key", payload.api_key)
             else:
                 keyring.delete_password("shixue-workbench", "model-api-key")
-        except Exception as exc:
-            raise HTTPException(500, f"无法保存到 Windows 凭据管理器：{str(exc)[:150]}") from exc
+        except Exception:
+            raise HTTPException(500, '无法保存到服务所在系统的凭据库，请检查服务账号或使用环境变量配置') from None
     return get_settings()
 
 
@@ -710,7 +737,7 @@ def request_completion(messages: list, settings: dict, max_output: int | None = 
     if not settings.get('base_url') or not settings.get('model'):
         raise ModelCallError('请先在模型与设置中填写模型地址和名称', fatal=True, sent=False)
     try:
-        secret = keyring.get_password('shixue-workbench', 'model-api-key')
+        secret = model_key()
     except Exception:
         secret = None
     hostname = (urlparse(settings['base_url']).hostname or '').lower()
@@ -869,6 +896,16 @@ def task_worker(task_id: str):
     except Exception as exc:
         with connection() as db:
             db.execute("UPDATE tasks SET status='failed',error=?,updated_at=? WHERE id=?", (str(exc)[:1200], utc_now(), task_id))
+    finally:
+        service.tasks.discard(threading.current_thread())
+
+
+def start_task(task_id: str):
+    if not service.embedded_workers:
+        return
+    thread = threading.Thread(target=task_worker, args=(task_id,), daemon=True, name=f"workflow-{task_id}")
+    service.tasks.add(thread)
+    thread.start()
 
 
 @app.post("/api/tasks")
@@ -903,9 +940,7 @@ def create_task(payload: TaskCreate):
         now = utc_now()
         db.execute("INSERT INTO tasks(id,project_id,material_id,task_type,title,instructions,status,input_json,result,error,created_at,updated_at,working_input_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (task_id, payload.project_id, payload.material_id,
             payload.task_type, titles[payload.task_type], payload.instructions, "queued", payload.model_dump_json(), "", "", now, now,frozen['id']))
-    thread = threading.Thread(target=task_worker, args=(task_id,), daemon=True, name=f"workflow-{task_id}")
-    service.tasks.add(thread)
-    thread.start()
+    start_task(task_id)
     return get_task(task_id)
 
 
@@ -945,9 +980,7 @@ def resume_task(task_id: str):
         if row["status"] not in {"paused", "failed"}:
             raise HTTPException(400, "只有暂停或失败任务可以重新处理")
         db.execute("UPDATE tasks SET status='queued',updated_at=? WHERE id=?", (utc_now(), task_id))
-    thread = threading.Thread(target=task_worker, args=(task_id,), daemon=True, name=f"workflow-{task_id}")
-    service.tasks.add(thread)
-    thread.start()
+    start_task(task_id)
     return {"id": task_id, "status": "queued"}
 
 
@@ -1046,8 +1079,19 @@ batch_runner = collation.register(app, connection, utc_now, lambda messages, mod
 debug_controller = collation_debug.register(app, connection, utc_now, lambda messages, model, budget: request_completion(messages, model, budget), read_model_settings, get_settings, service, batch_runner)
 deletion.register(app,connection,utc_now,service)
 submissions.register(app, connection)
+english_journals.register(app)
 research_results.register(app, connection, utc_now, service)
 register_knowledge(app, service, connection, request_completion, read_model_settings)
+try:
+    from backend.uploads import register as register_uploads
+except ModuleNotFoundError:
+    from uploads import register as register_uploads
+register_uploads(app, service)
+try:
+    from backend.api.exports import register as register_exports
+except ModuleNotFoundError:
+    from api.exports import register as register_exports
+register_exports(app, service, connection)
 
 
 @app.post('/api/service/exit')

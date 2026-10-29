@@ -1,3 +1,5 @@
+import { send } from './transport';
+import { platform } from './platform';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -31,7 +33,7 @@ export default function PdfReader({filePath,materialId,materialName,pageCount,pa
   const pageNumbers=useMemo(()=>Array.from({length:pdf?.numPages||0},(_,i)=>i+1),[pdf]);
   useEffect(()=>{if(!stage.current)return;const observer=new ResizeObserver(e=>setWidth(e[0].contentRect.width));observer.observe(stage.current);return()=>observer.disconnect();},[]);
   useEffect(()=>{let cancelled=false;let loading:pdfjs.PDFDocumentLoadingTask|undefined;setPdf(null);setSizes({});setError('');setSaveMessage('');reported.current=wanted.current;setCurrent(wanted.current);setVisible(new Set([wanted.current]));
-    void(async()=>{try{const response=await window.desktop.request({path:filePath||`/api/materials/${materialId}/file`});if(cancelled)return;if(response.status!==200||!(response.body instanceof ArrayBuffer))throw Error('原始 PDF 无法打开，请检查资料文件');
+    void(async()=>{try{const response=await send({path:filePath||`/api/materials/${materialId}/file`});if(cancelled)return;if(response.status!==200||!(response.body instanceof ArrayBuffer))throw Error('原始 PDF 无法打开，请检查资料文件');
       loading=pdfjs.getDocument({data:new Uint8Array(response.body),cMapUrl:new URL('./pdf-assets/cmaps/',location.href).href,cMapPacked:true,standardFontDataUrl:new URL('./pdf-assets/standard_fonts/',location.href).href,useWorkerFetch:false});
       const doc=await loading.promise;if(cancelled)return;const first=await doc.getPage(1);if(cancelled)return;const view=first.getViewport({scale:1});setBase({width:view.width,height:view.height});setPdf(doc);callbacks.current.onDocumentLoad?.(doc.numPages);
     }catch(e){if(!cancelled)setError(e instanceof Error?e.message:'PDF 读取失败');}})();
@@ -49,7 +51,7 @@ export default function PdfReader({filePath,materialId,materialName,pageCount,pa
     if(best!==reported.current){reported.current=best;setCurrent(best);setPageInput(String(best));callbacks.current.onPageChange(best);}
   });}
   function size(n:number,value:Size){setSizes(v=>v[n]?.width===value.width&&v[n]?.height===value.height?v:{...v,[n]:value});}
-  async function saveCopy(){setSaving(true);setSaveMessage('');try{const result=await window.desktop.request({path:filePath||`/api/materials/${materialId}/file`});if(result.status!==200)throw Error('无法读取原始文件');if(await window.desktop.saveFile({filename:materialName,data:result.body}))setSaveMessage('PDF 副本已保存');}catch(e){setSaveMessage(e instanceof Error?e.message:'保存失败');}finally{setSaving(false);}}
+  async function saveCopy(){setSaving(true);setSaveMessage('');try{const result=await send({path:filePath||`/api/materials/${materialId}/file`});if(result.status!==200)throw Error('无法读取原始文件');if(await platform.saveFile({filename:materialName,data:result.body}))setSaveMessage('PDF 副本已保存');}catch(e){setSaveMessage(e instanceof Error?e.message:'保存失败');}finally{setSaving(false);}}
   return <section className="reader-panel continuous-reader" aria-label="PDF 连续阅读"><header className="reader-toolbar"><div className="reader-file"><span title={materialName}>{materialName}</span></div><div className="reader-controls">
     <button className="icon-btn" aria-label="上一页" disabled={!pdf||current<=1} onClick={()=>scrollTo(current-1)}><ChevronLeft size={18}/></button><label className="page-counter"><input aria-label="跳转到页码" type="number" min={1} max={pages} value={pageInput} onChange={e=>setPageInput(e.target.value)} onBlur={()=>scrollTo(Number(pageInput))} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/><span>/ {pdf?pages:'…'}</span></label><button className="icon-btn" aria-label="下一页" disabled={!pdf||current>=pages} onClick={()=>scrollTo(current+1)}><ChevronRight size={18}/></button><span className="toolbar-divider"/>
     <button className="icon-btn" aria-label="缩小" disabled={scale<=.25} onClick={()=>onZoomChange(Math.max(.25,scale-.15))}><ZoomOut size={17}/></button><span className="zoom-label">{Math.round(scale*100)}%</span><button className="icon-btn" aria-label="放大" disabled={scale>=3} onClick={()=>onZoomChange(Math.min(3,scale+.15))}><ZoomIn size={17}/></button><button className="reader-fit button-quiet" aria-pressed={zoom==='fit'} onClick={()=>onZoomChange('fit')}>适合宽度</button><button className="icon-btn" aria-label="保存 PDF 副本" disabled={saving} onClick={()=>void saveCopy()}><Download size={17}/></button>

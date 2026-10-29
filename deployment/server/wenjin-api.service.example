@@ -1,0 +1,18 @@
+[Unit]
+Description=Wenjin API
+After=network.target
+
+[Service]
+Type=simple
+User=wenjin
+Group=wenjin
+WorkingDirectory=/opt/wenjin
+EnvironmentFile=/etc/wenjin/server.env
+ExecStart=/opt/wenjin/.venv/bin/python -m backend.server --data-dir /var/lib/wenjin --ui-dir /opt/wenjin/dist --port 8765
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=240
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

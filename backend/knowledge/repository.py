@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+import os
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -10,6 +11,7 @@ from sqlalchemy import text
 
 from .database import database
 from .text import tokenize
+from .shared import read_only_library
 
 DEFAULT_LIBRARY = '00000000-0000-0000-0000-000000000001'
 
@@ -75,7 +77,8 @@ def list_editions(connection, query='', project_id=None, before=None, limit=100)
 
 
 def asset_path(root: Path, key: str):
-    base = root.resolve()
+    shared = os.environ.get('SHIXUE_LIBRARY_ROOT') if read_only_library() and key.startswith('assets/') else None
+    base = Path(shared or root).resolve()
     path = (base / key).resolve()
     if base not in path.parents or not path.is_file():
         raise HTTPException(404, '原件不可读取')
@@ -83,6 +86,8 @@ def asset_path(root: Path, key: str):
 
 
 def store_file(root, filename, data):
+    if read_only_library():
+        raise HTTPException(403, '公共文献由管理员维护，请在个人项目中保存研究资料')
     if not data or len(data)>250*1024*1024:
         raise HTTPException(400, '文件为空或超过 250 MB')
     suffix = Path(filename).suffix.lower()

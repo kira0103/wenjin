@@ -14,4 +14,4 @@ export const debugApi = {
   history: (project: string) => request<DebugRecord[]>(`/api/projects/${project}/collation/debug/runs`),
   save: (project: string, config: DebugProfile, expected_revision: number, debug_run_id: string) => request<DebugConfig>(`/api/projects/${project}/collation/debug/config`, 'PUT', { config, expected_revision, debug_run_id }),
 };
-export const debugStatus: Record<string, string> = { review: '已返回，含文字差异待复核', running: '等待模型返回', passed: '格式与字序通过，待人工复核', no_change: '未新增标点，需人工核对', failed: '调试失败', interrupted: '调试中断' };
+export const debugStatus: Record<string, string> = { queued: '等待服务端执行', review: '已返回，含文字差异待复核', running: '等待模型返回', passed: '格式与字序通过，待人工复核', no_change: '未新增标点，需人工核对', failed: '调试失败', interrupted: '调试中断' };

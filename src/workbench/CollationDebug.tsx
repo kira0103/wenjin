@@ -1,3 +1,4 @@
+import { workspaceStorage as localStorage } from './storage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, FlaskConical, LoaderCircle, Play, Save } from 'lucide-react';
 import type { Material, Project } from './api';
@@ -51,14 +52,14 @@ export function CollationDebug({ project, materials, attemptId, onBack, onSettin
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [project.id, requestDraft]);
   useEffect(() => {
-    if (!result || result.status !== 'running') return;
+    if (!result || !['queued', 'running'].includes(result.status)) return;
     let cancelled = false, timer: number | undefined;
     const poll = async () => {
       try {
         const value = await debugApi.get(project.id, result.id);
         if (cancelled) return;
         setResult(value);
-        if (value.status === 'running') timer = window.setTimeout(() => void poll(), 1000);
+        if (['queued', 'running'].includes(value.status)) timer = window.setTimeout(() => void poll(), 1000);
         else { const records = await debugApi.history(project.id); if (!cancelled) setHistory(records); }
       } catch (e) { if (!cancelled) { setError((e as Error).message); timer = window.setTimeout(() => void poll(), 2000); } }
     };
@@ -77,7 +78,7 @@ export function CollationDebug({ project, materials, attemptId, onBack, onSettin
     if (alive.current) { setResult(value); pending.current = { signature: '', id: '' }; setHistory(await debugApi.history(project.id)); }
   });
   if (!saved || !draft) return <div className="page-container">{error ? <p className="persistent-error">{error}</p> : <p>正在读取点校调试…</p>}<button className="button-secondary" onClick={onBack}>返回古籍点校</button></div>;
-  const running = result?.status === 'running', locked = !!busy || running;
+  const running = !!result && ['queued', 'running'].includes(result.status), locked = !!busy || running;
   const canSave = !!result?.passed && same(result.config, draft.config) && result.model.base_url === saved.model.base_url && result.model.model === saved.model.model;
   const model = draft.attempt_id && seed ? seed.model : saved.model;
   return <div className="page-container collation-debug">

@@ -30,6 +30,7 @@ coverage/
 **/.managed-postgres/
 /backend/data/*.csv
 !/backend/data/journals.example.csv
+/backend/data/english_journals.json.gz
 *.sqlite
 *.sqlite-*
 *.sqlite3
@@ -62,6 +63,12 @@ id_ed25519*
 bootstrap.json
 knowledge-settings.json
 knowledge.json
+workspace-identity.json
+worker-status.json
+.http-service.lock
+.execution-worker.lock
+**/private/runtimes/
+**/private/models.json
 
 # Local historical design/acceptance notes; public documentation lives in docs/
 /*.md

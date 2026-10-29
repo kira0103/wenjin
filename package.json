@@ -15,12 +15,18 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "dev:web": "vite --host 127.0.0.1",
+    "dev:client": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron . --client\"",
+    "server": ".venv\\Scripts\\python.exe -m backend.server",
+    "worker": ".venv\\Scripts\\python.exe -m backend.worker",
+    "portal": ".venv\\Scripts\\python.exe -m backend.portal",
     "build:ui": "tsc --noEmit && vite build",
     "build": "npm run build:ui",
     "build:backend": ".venv\\Scripts\\python.exe -m PyInstaller --noconfirm --clean --onedir --distpath build/backend --hidden-import sqlalchemy.dialects.postgresql.psycopg --collect-all psycopg_binary --collect-all fastembed --collect-all rapidocr_onnxruntime --collect-all onnxruntime --collect-all jieba --collect-all opencc --add-data \"backend/migrations;backend/migrations\" --add-data \"backend/data;backend/data\" --hidden-import backend.knowledge.product_runtime --hidden-import backend.knowledge.activation --hidden-import backend.knowledge.compat --hidden-import backend.knowledge.catalog --hidden-import backend.knowledge.project_sources --hidden-import backend.knowledge.execution --hidden-import backend.knowledge.unified_api --name ShixueWorkbenchService backend/app.py",
     "dist:win": "npm run build:ui && npm run build:backend && electron-builder --win nsis",
     "dist:portable": "npm run build:ui && npm run build:backend && electron-builder --win portable",
-    "test": "vitest run src && node --test tests/workspace_path.test.cjs",
+    "dist:client": "npm run build:ui && electron-builder --win nsis portable --config electron-builder.client.cjs",
+    "test": "vitest run src && node --test tests/workspace_path.test.cjs tests/client_connection.test.cjs",
     "dist:candidate": "npm run build:ui && npm run build:backend && electron-builder --win nsis portable --config.directories.output=release/v0.5.0-rc.12 --config.appId=cn.shixue.workbench.candidate --config.productName=史学工作台候选版 --config.nsis.shortcutName=史学工作台候选版"
   },
   "dependencies": {

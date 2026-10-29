@@ -1,0 +1,73 @@
+/* 英文期刊库：列表 + 筛选条（暗色主题，颜色全部走主题变量） */
+.english-journals { display: grid; gap: 14px; min-width: 0; }
+.ej-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.ej-search { display: inline-flex; align-items: center; gap: 7px; flex: 1 1 240px; max-width: 380px; padding: 0 10px; border: 1px solid var(--tone-454b5a); border-radius: 6px; background: var(--surface-2); color: var(--muted); }
+.ej-search input { border: 0; background: transparent; padding: 8px 0; }
+.ej-search input:focus-visible { outline: none; }
+.ej-search:focus-within { border-color: var(--accent); }
+.ej-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ej-field select { min-width: 118px; }
+.ej-check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; white-space: nowrap; }
+.ej-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+.ej-reset { margin-left: auto; }
+.ej-stats { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.ej-stats strong { color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; }
+.ej-loading { margin-left: 10px; color: var(--accent); }
+.ej-version { color: var(--muted); }
+.ej-error { display: grid; gap: 6px; }
+.ej-error .button-secondary { justify-self: start; margin-top: 4px; }
+.ej-status { margin: 0; padding: 28px 12px; color: var(--muted); font-size: 13px; }
+.ej-table-wrap { overflow: auto; max-height: 62vh; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.ej-table { width: 100%; min-width: 1120px; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.ej-col-journal { width: 27%; }
+.ej-col-subject { width: 10%; }
+.ej-col-jcr { width: 12%; }
+.ej-col-cas { width: 14%; }
+.ej-col-xr { width: 11%; }
+.ej-col-wos { width: 13%; }
+.ej-col-flag { width: 9%; }
+.ej-col-actions { width: 74px; }
+.ej-table thead th { position: sticky; top: 0; z-index: 2; padding: 10px 12px; text-align: left; background: var(--surface-2); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.ej-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--tone-2b2e38); vertical-align: top; line-height: 1.7; }
+.ej-row { cursor: pointer; }
+.ej-row > td { transition: background .12s ease; }
+.ej-row:hover > td { background: var(--tone-20232c); }
+.ej-row.is-open > td { background: var(--tone-252936); }
+.ej-journal strong { display: block; font-weight: 550; overflow-wrap: anywhere; }
+.ej-journal small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.ej-subject { overflow-wrap: anywhere; }
+.ej-pill { display: inline-flex; align-items: center; padding: 1px 7px; border: 1px solid transparent; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ej-tier-1 { color: var(--tone-b3f0ce); background: var(--tone-254032); border-color: var(--tone-48765d); }
+.ej-tier-2 { color: var(--tone-a1cef5); background: var(--tone-27374e); border-color: var(--tone-46576b); }
+.ej-tier-3 { color: var(--tone-ffe1a0); background: var(--tone-3f3320); border-color: var(--tone-6b5b3c); }
+.ej-tier-4 { color: var(--tone-ffc0b9); background: var(--tone-3c2728); border-color: var(--tone-79524d); }
+.ej-tier-none { color: var(--muted); background: var(--tone-262a35); border-color: var(--tone-454b5a); }
+.ej-if, .ej-ranking { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ej-top { display: inline-flex; margin-left: 4px; padding: 1px 5px; border: 1px solid var(--tone-6b5b3c); border-radius: 3px; background: var(--tone-30291d); color: var(--tone-eed29b); font-size: 11px; font-weight: 600; }
+.ej-wos { color: var(--tone-b9bdc9); overflow-wrap: anywhere; }
+.ej-wos.is-unstable { color: var(--tone-eed29b); }
+.ej-cell-flag { display: table-cell; }
+.ej-flag { display: inline-flex; margin: 0 4px 4px 0; padding: 1px 6px; border: 1px solid var(--tone-79524d); border-radius: 4px; background: var(--tone-392526); color: var(--tone-f6a79b); font-size: 11px; line-height: 1.6; }
+.ej-flag.is-warn { color: var(--tone-ffc0b9); border-color: var(--tone-915958); }
+.ej-dash { color: var(--tone-4d5261); }
+.ej-actions { text-align: right; }
+.ej-actions .button-quiet { white-space: nowrap; }
+.ej-detail-row > td { padding: 0; border-bottom: 1px solid var(--line); background: var(--tone-161920); }
+.ej-detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px 18px; padding: 14px 16px 18px; }
+.ej-detail-block h4 { margin: 0 0 6px; color: var(--accent); font-size: 12px; font-weight: 600; }
+.ej-detail-block p { margin: 0; color: var(--tone-b9bdc9); font-size: 12px; line-height: 1.9; overflow-wrap: anywhere; }
+.ej-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ej-tags li { padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.ej-empty { padding: 40px 16px !important; text-align: center; color: var(--muted); }
+.ej-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.ej-pager span { font-variant-numeric: tabular-nums; }
+.ej-pager select { min-width: 92px; }
+.ej-library-total { margin-left: auto; }
+.ej-sources { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); font-size: 12px; line-height: 1.9; }
+.ej-sources summary { cursor: pointer; }
+.ej-sources p { margin: 6px 0 0; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .ej-search { flex-basis: 100%; max-width: none; }
+  .ej-reset { margin-left: 0; }
+  .ej-table-wrap { max-height: 58vh; }
+}

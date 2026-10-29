@@ -1,6 +1,8 @@
+import { workspaceStorage as localStorage } from './storage';
+import { platform } from './platform';
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { BookMarked, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Check, ChevronDown, ChevronRight, CircleAlert, Command, FileText, FolderKanban, History, Layers3, LibraryBig, LoaderCircle, Plus, Search, Settings2, ShieldCheck, X, type LucideIcon } from 'lucide-react';
-import { api, request, artifactBody, type MaterialRole, type Project, type Bootstrap, type MaterialDetail, type ModelSettings, type SourceContext, type TaskArtifact, type TaskKind, type WorkArtifact, type WorkTask, taskNames } from './api';
+import { api, request, type MaterialRole, type Project, type Bootstrap, type MaterialDetail, type ModelSettings, type SourceContext, type TaskArtifact, type TaskKind, type WorkArtifact, type WorkTask, taskNames } from './api';
 import { materialView, readSession, saveSession, searchMaterials, sourceInfo, type MaterialView } from './viewState';
 import { GlobalDocument, projectNames } from './LibraryViews';
 import { ProjectOverview, ProjectConfigDialog, CollationWorkspace, ResearchList, ResearchEditor, WorkResults } from './ResearchViews';
@@ -16,13 +18,15 @@ import SubmissionWorkbench, { type SubmissionDraft } from './SubmissionWorkbench
 import ProjectAssistantPanel from './knowledge/ProjectAssistantPanel';
 import AppearanceSettings from './AppearanceSettings';
 import PanelDivider from './PanelDivider';
+import AccountSettings from '../portal/AccountSettings';
+import type { PortalUser } from '../portal/types';
 import {applyTheme,readTheme,saveTheme,readLayout,saveLayout} from './appearance';
 
 type Page = 'research-assistant' | 'submissions' | 'knowledge' | 'collation-debug' | 'collation-batch' | 'volume-preparation' | 'global-library' | 'project-materials' | 'research' | 'home' | 'library' | 'materials' | 'tasks' | 'artifacts' | 'settings';
 const titles: Record<Page, string> = { 'research-assistant': '研究助手', submissions: '论文投稿管理', knowledge: '文献库', 'collation-debug': '点校调试', 'collation-batch': '批量点校', 'volume-preparation': '准备卷文本', 'global-library': '文献库', 'project-materials': '项目材料', research: '研究工作', home: '项目概览', library: '文献库', materials: '材料阅读', tasks: '任务记录', artifacts: '工作成果', settings: '模型与设置' };
 function errorText(error: unknown) { return error instanceof Error ? error.message : '操作失败，请重试'; }
 
-export default function App() {
+export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogout?:()=>Promise<void>}={}) {
   const [session, setSession] = useState(readSession);
   const projectId = session.projectId;
   const [page, setPageState] = useState<Page>(() => { const saved = session.pageByProject?.[session.projectId] as Page; return saved==='research-assistant'?'home':saved in titles?saved:'home'; });
@@ -32,7 +36,7 @@ export default function App() {
   useEffect(()=>{const resize=()=>setViewport(innerWidth);window.addEventListener('resize',resize);return()=>window.removeEventListener('resize',resize);},[]);
   const [data, setData] = useState<Bootstrap | null>(null);
   const [startup,setStartup]=useState({stage:'starting',message:'正在启动资料服务',elapsed:0});
-  useEffect(()=>{if(data||!window.desktop.serviceStatus)return;let live=true;const check=()=>void window.desktop.serviceStatus!().then(value=>{if(live)setStartup(value);}).catch(()=>{});check();const timer=setInterval(check,500);return()=>{live=false;clearInterval(timer);};},[!!data]);
+  useEffect(()=>{if(data||!platform.serviceStatus)return;let live=true;const check=()=>void platform.serviceStatus!().then(value=>{if(live)setStartup(value);}).catch(()=>{});check();const timer=setInterval(check,500);return()=>{live=false;clearInterval(timer);};},[!!data]);
   const [selectedId, setSelectedId] = useState<string | null>(session.selectedByProject[projectId] || null);
   const [detail, setDetail] = useState<MaterialDetail | null>(null);
   const [detailError, setDetailError] = useState('');
@@ -71,7 +75,8 @@ export default function App() {
   const navigationVersion = useRef(0);
   const registerLeave = useCallback((callback: (() => Promise<boolean>) | null) => { leaveWork.current = callback; }, []);
   const [creatingProject, setCreatingProject] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<'model'|'data'|'assistants'|'retrieval'|'catalog'|'appearance'>('model');
+  const [settingsSection, setSettingsSection] = useState<'model'|'data'|'assistants'|'retrieval'|'catalog'|'appearance'|'account'>(portalUser?'appearance':'model');
+  const settingsTabs:[typeof settingsSection,string][]=portalUser?[['appearance','外观'],['account','账号与安全'],['assistants','助手与 Skill'],['retrieval','检索配置']]:[['model','模型设置'],['appearance','外观'],['data','数据与备份'],['assistants','助手与 Skill'],['retrieval','检索设置'],['catalog','资料维护']];
   const [libraryReset,setLibraryReset]=useState(0);
   const [libraryIncoming, setLibraryIncoming] = useState<{id:string;asset?:string;page?:number}|null>(null);
   const clearLibraryIncoming = useCallback(() => setLibraryIncoming(null), []);
@@ -132,7 +137,7 @@ export default function App() {
       finally { working = false; }
     };
     void boot();
-    const unsubscribe = window.desktop.onServiceReady(() => { void boot(); });
+    const unsubscribe = platform.onServiceReady(() => { void boot(); });
     const interval = window.setInterval(() => { void boot(); }, 4200);
     return () => { cancelled = true; ++requestVersion.current; unsubscribe(); window.clearInterval(interval); };
   }, [projectId, refresh]);
@@ -192,7 +197,7 @@ export default function App() {
     const version = ++navigationVersion.current;
     if (leaveWork.current && !(await leaveWork.current())) return false;
     if (version !== navigationVersion.current) return false;
-    if (target === 'settings' && page !== 'settings') settingsReturn.current = page;
+    if (target === 'settings' && page !== 'settings') {settingsReturn.current = page;if(portalUser)setSettingsSection('account');}
     setPageState(target); return true;
   }
   async function changed() { await refresh(); setDetailRevision(v => v + 1); }
@@ -237,10 +242,11 @@ export default function App() {
     else if (tool) updateView({ taskKind: tool, tab: 'reader', sideOpen: true }, id, selected.page_count);
   }
   async function doImport(entryId?: string, destinationProject: string | null = projectId, role: MaterialRole = 'reference') {
+    if (portalUser) { setGlobalReaderId(null); await navigate('global-library'); setToast('请从公共资料库选用文献；新文献由管理员发布。'); return; }
     if (uploading) return;
     const importProject = destinationProject;
     try {
-      const files = await window.desktop.pickDocuments();
+      const files = await platform.pickDocuments();
       if (!files.length) return;
       setUploading(true);
       let latest: string | null = null;
@@ -270,7 +276,7 @@ export default function App() {
   async function runTask() {
     if (busy || !material || !currentDetail || serviceError) return;
     const info = sourceInfo(currentDetail, view);
-    const problem = !data?.settings.configured ? '请先保存模型连接设置' : view.pageFrom > view.pageTo ? '起始页不能大于结束页' : view.sourceMode === 'paste' ? !view.pastedSource.trim() ? '请粘贴需要处理的原文' : view.pastedSource.length > 30000 ? '粘贴原文超过 30,000 字，请分批处理' : '' : !info.hasText ? '所选页面没有文字，请切换到粘贴原文' : info.characters > 42000 ? '所选文字超过 42,000 字，请缩小页码范围' : '';
+    const problem = !data?.settings.configured ? (portalUser?'研究模型尚未就绪，请联系管理员':'请先保存模型连接设置') : view.pageFrom > view.pageTo ? '起始页不能大于结束页' : view.sourceMode === 'paste' ? !view.pastedSource.trim() ? '请粘贴需要处理的原文' : view.pastedSource.length > 30000 ? '粘贴原文超过 30,000 字，请分批处理' : '' : !info.hasText ? '所选页面没有文字，请切换到粘贴原文' : info.characters > 42000 ? '所选文字超过 42,000 字，请缩小页码范围' : '';
     if (problem) { setToast(problem); return; }
     const runProject = projectId, runMaterial = material.id;
     setBusy(true);
@@ -325,11 +331,8 @@ export default function App() {
   }
   async function exportArtifact(artifact: WorkArtifact | TaskArtifact) {
     try {
-      const body = 'body' in artifact ? artifactBody(artifact.body) : artifact;
-      const context = body.source_context;
-      const content = `# ${artifact.title}\n\n${context?.material_title ? `材料：${context.material_title}\n\n` : ''}${context?.selection ? `处理范围：${context.selection}\n\n` : ''}${context?.model ? `模型：${context.model}\n\n` : ''}${context?.missing_pages?.length ? `未提取到文字的页码：${context.missing_pages.join('、')}\n\n` : ''}请对照原文复核 AI 结果。\n\n${body.content}`;
-      const filename = `${artifact.title.replace(/[<>:"/\\|?*]/g, '_') || '研究成果'}.md`;
-      const saved = await window.desktop.saveFile({ filename, data: new TextEncoder().encode(content).buffer });
+      const file = await api.exportArtifact(artifact.id);
+      const saved = await platform.saveFile({ filename:file.filename, data:new TextEncoder().encode(file.content).buffer });
       if (saved) setToast('成果已导出');
     } catch (error) { setToast(errorText(error)); }
   }
@@ -349,7 +352,7 @@ export default function App() {
   }
 
   return <div className="app-shell" style={gridStyle}>
-    <header className="app-titlebar"><div className="titlebar-start"><button className="icon-btn" aria-label={layout.leftOpen?'折叠导航':'展开导航'} onClick={()=>setLayout(v=>({...v,leftOpen:!v.leftOpen}))}>{layout.leftOpen?<PanelLeftClose size={18}/>:<PanelLeftOpen size={18}/>}</button><BookMarked size={17}/><span>史学工作台</span></div><span className="titlebar-project">{currentProject?.name||'研究工作区'}</span><div className="titlebar-end"><button className="button-quiet" aria-label="研究助手" aria-expanded={assistantVisible} onClick={()=>{if(assistantVisible)setLayout(v=>({...v,rightOpen:false}));else openAssistant();}}>{assistantVisible?<PanelRightClose size={17}/>:<PanelRightOpen size={17}/>}<span>研究助手</span></button></div></header>
+    <header className="app-titlebar"><div className="titlebar-start"><button className="icon-btn" aria-label={layout.leftOpen?'折叠导航':'展开导航'} onClick={()=>setLayout(v=>({...v,leftOpen:!v.leftOpen}))}>{layout.leftOpen?<PanelLeftClose size={18}/>:<PanelLeftOpen size={18}/>}</button><BookMarked size={17}/><span>史学工作台</span></div><span className="titlebar-project">{currentProject?.name||'研究工作区'}</span><div className="titlebar-end">{portalUser&&<><button className="button-quiet portal-account-button" onClick={()=>{setSettingsSection('account');void navigate('settings');}}>{portalUser.display_name}</button>{portalUser.role==='admin'&&<a className="portal-admin-link" href="/admin/">管理后台</a>}</>}<button className="button-quiet" aria-label="研究助手" aria-expanded={assistantVisible} onClick={()=>{if(assistantVisible)setLayout(v=>({...v,rightOpen:false}));else openAssistant();}}>{assistantVisible?<PanelRightClose size={17}/>:<PanelRightOpen size={17}/>}<span>研究助手</span></button></div></header>
     <aside className="sidebar" aria-label="工作台导航" hidden={!layout.leftOpen}>
 
       <div className="project-heading"><span>研究项目</span><button className="icon-btn subtle" aria-label="新建研究项目" onClick={() => setProjectDialog(true)}><Plus size={16} /></button></div>
@@ -357,9 +360,9 @@ export default function App() {
       {projectMenu && <div className="project-menu">{data?.projects.filter(p => !p.archived).map(p => <button key={p.id} onClick={() => switchProject(p.id)}><FolderKanban size={14} /><span>{p.name}</span>{p.id === projectId && <Check size={14} />}</button>)}<button onClick={() => { setProjectMenu(false); setProjectDialog(true); }}><Plus size={14} />新建研究项目</button><button onClick={() => setShowArchived(v => !v)}>已归档项目 {data?.projects.filter(p => p.archived).length || 0}</button>{showArchived && data?.projects.filter(p => p.archived).map(p => <button key={p.id} onClick={() => void restoreProject(p.id)}><History size={14} /><span>{p.name}</span>恢复</button>)}</div>}
       <nav className="nav-list"><NavItem icon={LibraryBig} label="文献库" active={page === 'global-library' || page === 'knowledge'} onClick={() => void (async()=>{if(await navigate('global-library')){setGlobalAssistant(false);setGlobalReaderId(null);setLibraryReset(v=>v+1);}})()} /><NavItem icon={FileText} label="论文投稿管理" active={page === 'submissions'} onClick={() => void navigate('submissions')} /><div className="nav-scope-label">当前项目</div><NavItem icon={Command} label="项目概览" active={page === 'home'} onClick={() => void navigate('home')} /><NavItem icon={LibraryBig} label="项目材料" active={page === 'project-materials' || page === 'library'} count={materials.length} onClick={() => { setPendingTool(null); void navigate('project-materials'); }} /><NavItem icon={FileText} label={currentProject?.project_type === 'collation' ? '古籍点校' : '研究工作'} active={page === 'research' || page === 'volume-preparation' || page === 'collation-batch' || page === 'collation-debug'} count={units.length} onClick={() => void openResearch()} /><NavItem icon={Layers3} label="工作成果" active={page === 'artifacts'} count={artifacts.length + units.length} onClick={() => { setArtifactId(null); void navigate('artifacts'); }} /><NavItem icon={History} label="执行记录" active={page === 'tasks'} count={tasks.filter(t => ['running', 'queued', 'failed', 'paused'].includes(t.status)).length} onClick={() => { setOpenTaskId(null); void navigate('tasks'); }} /></nav>
 
-      <div className="sidebar-heading"><span>最近材料</span><button className="icon-btn subtle" aria-label="导入项目资料" disabled={uploading} onClick={() => void doImport()}><Plus size={16} /></button></div>
+      <div className="sidebar-heading"><span>最近材料</span><button className="icon-btn subtle" aria-label={portalUser?'从公共资料库选用':'导入项目资料'} disabled={uploading} onClick={() => void doImport()}><Plus size={16} /></button></div>
       <div className="material-nav-list">{[...materials].sort((a, b) => Number(b.id === selectedId) - Number(a.id === selectedId)).slice(0, 8).map(m => <button key={m.id} title={m.title} aria-current={page === 'materials' && selectedId === m.id ? 'page' : undefined} className={`material-nav ${page === 'materials' && selectedId === m.id ? 'material-nav-active' : ''}`} onClick={() => selectMaterial(m.id)}><FileText size={15} /><span>{m.title}</span></button>)}{!materials.length && <div className="sidebar-empty">尚未添加材料</div>}<button className="sidebar-all button-quiet" onClick={() => { setFilter(''); void navigate('project-materials'); }}>查看项目材料 <ChevronRight size={14} /></button></div>
-      <div className="sidebar-bottom"><div className="storage-meter"><ShieldCheck size={16} /><div><strong>本机工作区</strong><small>原件、工作稿与成果保存在本机</small></div></div><NavItem icon={Settings2} label="模型与设置" active={page === 'settings'} onClick={() => navigate('settings')} /></div>
+      <div className="sidebar-bottom"><div className="storage-meter"><ShieldCheck size={16} /><div><strong>{portalUser?'个人工作区':data?.settings.service_mode==='server'?'服务端工作区':'本机工作区'}</strong><small>{portalUser?'公共文献共享，项目与任务独立保存':data?.settings.service_mode==='server'?'原件、工作稿与成果保存在资料服务中':'原件、工作稿与成果保存在本机'}</small></div></div><NavItem icon={Settings2} label={portalUser?'个人设置':'模型与设置'} active={page === 'settings'} onClick={() => navigate('settings')} /></div>
     </aside>
     {layout.leftOpen&&<PanelDivider side="left" width={leftWidth} max={Math.min(320,Math.max(184,viewport-(assistantVisible?rightWidth+8:0)-488))} onWidth={v=>setLayout(s=>({...s,leftWidth:v}))}/>}
     <main className="main-column">
@@ -382,13 +385,14 @@ export default function App() {
           {page === 'materials' && <Workspace material={material} detail={currentDetail} error={detailError} onReload={() => setDetailRevision(v => v + 1)} view={view} updateView={updateView} task={materialTask} tasks={materialTasks} onTask={openTaskRecord} onResult={showTaskArtifact} onSource={showSource} configured={!!data.settings.configured} serviceReady={!serviceError} onSettings={() => navigate('settings')} onBack={() => { setFilter(''); void navigate('project-materials'); }} onImport={() => void doImport()} uploading={uploading} onRun={runTask} busy={busy} onReference={referenceAction} onExport={exportArtifact} />}
           {page === 'tasks' && <>{currentProject && <BatchHistory project={currentProject} onOpen={id => { localStorage.setItem(`shixue-batch-${projectId}`, id); void openBatch(); }} />}<TaskPage tasks={tasks} task={openTask?.project_id === projectId ? openTask : undefined} selectedId={openTaskId} onSelect={openTaskRecord} onBack={() => setOpenTaskId(null)} onRetry={retryTask} onSource={showSource} onResult={showTaskArtifact} onSettings={() => navigate('settings')} onExport={exportArtifact} /></>}
           {page === 'artifacts' && <>{!openArtifact && <WorkResults units={units} onOpen={id => void openUnit(id)} onCreateSubmission={unit => { void navigate('submissions').then(ok => { if (ok) setSubmissionDraft({ title: unit.title, project_id: unit.project_id, source_kind: 'unit', source_id: unit.id }); }); }} />}<ArtifactsPage onResearchSource={anchor=>{void (async()=>{try{const source=await request<{edition_id:string;deleted:boolean;locator:{asset_id:string;page_index:number}}>('/api/knowledge/anchors/'+anchor);if(source.deleted)throw Error('原始来源已删除，成果中的引文快照仍保留');if(await navigate('global-library'))setLibraryIncoming({id:source.edition_id,asset:source.locator.asset_id,page:source.locator.page_index});}catch(error){setToast(errorText(error));}})();}} onCreateSubmission={artifact => { void navigate('submissions').then(ok => { if (ok) setSubmissionDraft({ title: artifact.title, project_id: artifact.project_id, source_kind: 'artifact', source_id: artifact.id }); }); }} artifacts={artifacts} selected={openArtifact} onSelect={openArtifactRecord} onBack={() => setArtifactId(null)} onSource={showSource} onTask={openTaskRecord} onExport={exportArtifact} /></>}
-          {page === 'settings' && <div className="page-container settings-hub-tabs" role="tablist" aria-label="设置类别">{([['model','模型设置'],['appearance','外观'],['data','数据与备份'],['assistants','助手与 Skill'],['retrieval','检索设置'],['catalog','资料维护']] as const).map(([id,label])=><button key={id} role="tab" aria-selected={settingsSection===id} className={settingsSection===id?'button-primary':'button-secondary'} onClick={()=>void (async()=>{if(leaveWork.current&&!(await leaveWork.current()))return;setSettingsSection(id);})()}>{label}</button>)}</div>}
-          {page === 'settings' && settingsSection === 'model' && <SettingsPage settings={settings} dirty={dirtySettings} onChange={value => { dirtyRef.current = true; ++settingsVersion.current; setSettings(value); setDirtySettings(true); setConnectionResult(null); }} onSave={saveSettings} saving={savingSettings} onTest={testConnection} testing={testing} connectionResult={connectionResult} onReturn={() => void navigate(settingsReturn.current)} />}
+          {page === 'settings' && <div className="page-container settings-hub-tabs" role="tablist" aria-label="设置类别">{settingsTabs.map(([id,label])=><button key={id} role="tab" aria-selected={settingsSection===id} className={settingsSection===id?'button-primary':'button-secondary'} onClick={()=>void (async()=>{if(leaveWork.current&&!(await leaveWork.current()))return;setSettingsSection(id);})()}>{label}</button>)}</div>}
+          {page === 'settings' && !portalUser && settingsSection === 'model' && <SettingsPage settings={settings} dirty={dirtySettings} onChange={value => { dirtyRef.current = true; ++settingsVersion.current; setSettings(value); setDirtySettings(true); setConnectionResult(null); }} onSave={saveSettings} saving={savingSettings} onTest={testConnection} testing={testing} connectionResult={connectionResult} onReturn={() => void navigate(settingsReturn.current)} />}
+          {page === 'settings' && portalUser && settingsSection === 'account' && onLogout && <div className="portal-user-settings"><AccountSettings user={portalUser} onLogout={onLogout}/><div className="portal-model-info">研究模型由管理员配置。当前模型：{data.settings.model||'尚未配置'}。</div></div>}
           {page === 'settings' && settingsSection === 'appearance' && <AppearanceSettings theme={theme} onChange={v=>{setTheme(v);saveTheme(v);}}/>}
-          {page === 'settings' && settingsSection === 'data' && <><WorkspaceStorage /><KnowledgeSettings /></>}
-          {page === 'settings' && settingsSection !== 'model' && settingsSection !== 'appearance' && <KnowledgeWorkbench key={settingsSection} section="management" initialTab={settingsSection==='data'?'maintenance':settingsSection==='assistants'?'assistant-settings':settingsSection==='retrieval'?'retrieval-settings':'unclassified'} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('settings')} onRegisterLeave={registerLeave} />}
+          {page === 'settings' && !portalUser && settingsSection === 'data' && <><WorkspaceStorage /><KnowledgeSettings /></>}
+          {page === 'settings' && settingsSection !== 'model' && settingsSection !== 'appearance' && settingsSection !== 'account' && <KnowledgeWorkbench readOnlyLibrary={!!portalUser} key={settingsSection} section="management" initialTab={settingsSection==='data'?'maintenance':settingsSection==='assistants'?'assistant-settings':settingsSection==='retrieval'?'retrieval-settings':'unclassified'} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('settings')} onRegisterLeave={registerLeave} />}
 
-          {(page === 'knowledge' || page === 'global-library' && !globalReaderId) && <KnowledgeWorkbench key={'library-'+libraryReset} incomingSource={libraryIncoming} onIncomingUsed={clearLibraryIncoming} onNavigateAssistant={(query,id,filter)=>{setAssistantDraft({query,id,filter});openAssistant();}} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('settings')} onRegisterLeave={registerLeave} />}
+          {(page === 'knowledge' || page === 'global-library' && !globalReaderId) && <KnowledgeWorkbench readOnlyLibrary={!!portalUser} key={'library-'+libraryReset} incomingSource={libraryIncoming} onIncomingUsed={clearLibraryIncoming} onNavigateAssistant={(query,id,filter)=>{setAssistantDraft({query,id,filter});openAssistant();}} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('settings')} onRegisterLeave={registerLeave} />}
         </>}
       </div>
       <footer className="statusbar"><div><span className={`status-live-dot ${serviceError ? 'status-offline' : ''}`} />{serviceError ? '资料服务连接失败' : data ? '资料服务已连接' : '正在连接资料服务'}</div><span>当前项目 · {materials.length} 份材料</span><span className="statusbar-shortcut">按 <kbd>Ctrl K</kbd> 搜索</span></footer>

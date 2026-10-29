@@ -46,7 +46,7 @@ def prune_superseded_runs(db, project_id='', material_id=''):
     db.executemany('DELETE FROM preprocess_runs WHERE id=?', ((run_id,) for run_id in obsolete))
 
 
-def migrate(db, root, now):
+def migrate(db, root, now, *, recover=True):
     if not db.execute("SELECT 1 FROM sqlite_master WHERE name='preprocess_runs'").fetchone() and db.execute('SELECT 1 FROM materials LIMIT 1').fetchone():
         # Finish the existing library migration before taking a coherent upgrade backup.
         db.commit()
@@ -79,7 +79,8 @@ def migrate(db, root, now):
         db.execute("ALTER TABLE research_units ADD COLUMN preprocess_json TEXT NOT NULL DEFAULT '{}'")
     for recipe in BUILTINS:
         db.execute('INSERT OR IGNORE INTO preprocess_recipes(id,recipe_json,created_at) VALUES(?,?,?)', ('builtin-'+digest(recipe.model_dump())[:16], json.dumps(recipe.model_dump(), ensure_ascii=False), now()))
-    db.execute("UPDATE preprocess_jobs SET status='paused',error='上次退出时识别尚未完成，可继续识别。' WHERE status IN ('queued','running')")
+    if recover:
+        db.execute("UPDATE preprocess_jobs SET status='paused',error='上次退出时识别尚未完成，可继续识别。' WHERE status IN ('queued','running')")
     if unused_superseded_runs(db):
         db.commit()
         folder = root / 'backups'
@@ -537,6 +538,8 @@ def register(app, connection, now, generate, settings, service):
             service.tasks.discard(threading.current_thread())
 
     def start_job(job_id):
+        if not service.embedded_workers:
+            return
         with job_lock:
             if job_id in active_jobs:
                 return
@@ -592,4 +595,4 @@ def register(app, connection, now, generate, settings, service):
         start_job(job_id)
         return {'id': job_id, 'status': 'queued'}
 
-    return {'create_units': create_units}
+    return {'create_units': create_units, 'execute_job': worker}

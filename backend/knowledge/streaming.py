@@ -5,7 +5,10 @@ import ipaddress
 from urllib.parse import urlparse
 
 import httpx
-import keyring
+try:
+    from backend.credentials import model_key
+except ModuleNotFoundError:
+    from credentials import model_key
 
 from .retrieval import answer
 
@@ -14,8 +17,7 @@ def events(root,payload,settings):
     messages=queue.Queue();cancelled=threading.Event();response_ref=[]
 
     def completion(prompts,options,budget):
-        try:secret=keyring.get_password('shixue-workbench','model-api-key')
-        except Exception:secret=None
+        secret=model_key()
         host=(urlparse(options['base_url']).hostname or '').lower()
         local=host=='localhost'
         try:local=local or ipaddress.ip_address(host).is_loopback

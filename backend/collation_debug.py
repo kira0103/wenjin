@@ -120,13 +120,18 @@ class Controller:
     def active(self,root):
         with self.lock: return any(r==Path(root) for r in self.workers.values())
     def start(self,root,run_id):
+        if not self.service.embedded_workers:
+            return
         with self.lock: self.workers[run_id]=Path(root)
         worker=threading.Thread(target=self.execute,args=(Path(root),run_id),daemon=True,name='collation-debug')
         self.service.tasks.add(worker);worker.start()
     def execute(self,root,run_id):
         started=time.monotonic();reply={};status='failed';error='';validation={}
         try:
-            with collation.database(root) as db: row=db.execute('SELECT * FROM collation_debug_runs WHERE id=?',(run_id,)).fetchone()
+            with collation.database(root) as db:
+                import os
+                db.execute("UPDATE collation_debug_runs SET status='running',owner_pid=? WHERE id=?", (os.getpid(),run_id))
+                row=db.execute('SELECT * FROM collation_debug_runs WHERE id=?',(run_id,)).fetchone()
             model,request=json.loads(row['model_json']),json.loads(row['request_json'])
             try:
                 reply=self.call(request['messages'],model,request.get('max_tokens'))
@@ -189,12 +194,12 @@ def register(app,connection,now,call,model_settings,public_settings,service,batc
             if not public_settings()['configured']: raise HTTPException(400,'请先在模型与设置中配置连接')
             if db.execute("SELECT 1 FROM collation_batches WHERE status IN ('queued','running','pausing','stopping') LIMIT 1").fetchone():
                 raise HTTPException(409,'请先暂停活动批次，等待在途请求保存后再调试')
-            if db.execute("SELECT 1 FROM collation_debug_runs WHERE status='running' LIMIT 1").fetchone():
+            if db.execute("SELECT 1 FROM collation_debug_runs WHERE status IN ('queued','running') LIMIT 1").fetchone():
                 raise HTTPException(409,'已有调试请求执行中，请等待返回')
             model,request=preview(db,project_id,payload,model_settings)
             import os
             db.execute('''INSERT INTO collation_debug_runs(id,project_id,fingerprint,config_json,model_json,request_json,input_text,title,status,created_at,owner_pid)
-              VALUES(?,?,?,?,?,?,?,?,?,?,?)''',(run_id,project_id,fingerprint,json.dumps(payload.config.model_dump(),ensure_ascii=False),json.dumps(model,ensure_ascii=False),json.dumps(request,ensure_ascii=False),payload.input_text,payload.title,'running',now(),os.getpid()))
+              VALUES(?,?,?,?,?,?,?,?,?,?,?)''',(run_id,project_id,fingerprint,json.dumps(payload.config.model_dump(),ensure_ascii=False),json.dumps(model,ensure_ascii=False),json.dumps(request,ensure_ascii=False),payload.input_text,payload.title,'running' if service.embedded_workers else 'queued',now(),os.getpid()))
             value=report(db.execute('SELECT * FROM collation_debug_runs WHERE id=?',(run_id,)).fetchone())
         controller.start(root,run_id)
         return value

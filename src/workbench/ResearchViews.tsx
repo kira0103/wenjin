@@ -1,3 +1,5 @@
+import { workspaceStorage as localStorage } from './storage';
+import { platform } from './platform';
 import { ProjectDeleteConfirmation, type DeletePreview } from './DeleteDialogs';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, FileText, History, LoaderCircle, Plus, Save, Settings2 } from 'lucide-react';
@@ -143,7 +145,7 @@ export function ResearchEditor({ id, project, materials, tasks, onBack, onChange
       location: range ? `本卷工作稿字符 ${range.start}–${range.end}` : unit.location_label, base_reading: '', witness_id: '', witness_reading: '',
       decision: `采用 ${taskNames[selectedTask.task_type]}${range ? ' 的卷内选区建议' : ' 为工作稿'}；任务 ${selectedTask.id}`, evidence: 'AI 输出尚需对照原文复核', status: 'pending' }] });
   };
-  const exportDraft = async () => { const u = current.current; if (!u) return; const text = `# ${u.title}\n\n项目：${project.name}\n范围：${u.volume} / ${u.category} / ${u.location_label || `${u.page_from}–${u.page_to}`}\n预处理来源：${u.preprocess?.run_id || '直接录文'} / ${u.preprocess?.recipe_name || ''} / 字符 ${u.preprocess?.source_start ?? ''}–${u.preprocess?.source_end ?? ''}\n工作稿版本：${u.revision}${dirty ? '（含未保存修改）' : ''}\n状态：${unitStatus[u.status]}\n\n${u.content}\n\n## 校记与复核记录\n\n${u.notes.map(n => `- ${noteNames[n.kind]} / ${n.location} / ${n.status}\n  底本：${n.base_reading}\n  参校读法：${n.witness_reading}\n  处理：${n.decision}\n  依据：${n.evidence}`).join('\n')}`; try { await window.desktop.saveFile({ filename: `${u.title.replace(/[<>:"/\\|?*]/g, '_')}.md`, data: new TextEncoder().encode(text).buffer }); } catch (e) { setError((e as Error).message); } };
+  const exportDraft = async () => { const unit = current.current; if (!unit) return; try { const file = await api.exportUnit(unit); await platform.saveFile({filename:file.filename,data:new TextEncoder().encode(file.content).buffer}); } catch(e) { setError((e as Error).message); } };
   if (!draft) return <div className="page-loading">{error || '正在读取工作稿…'}</div>;
   const material = materials.find(m => m.id === draft.material_id);
   let inputLength = 0; try { inputLength = Array.from(selectedInput(draft).text).length; } catch { /* Select text before requesting a partial suggestion. */ }

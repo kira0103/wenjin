@@ -36,6 +36,8 @@ app.whenReady().then(async()=>{
     const response=await fetch(base+`/api/knowledge/catalog/editions/${value.id}/imports?filename=${type}.txt`,{method:'POST',headers:{'X-App-Token':token,'Content-Type':'application/octet-stream'},body:Buffer.from('财政赋税𠀀关系国家财政，折银制度须对照具体史料和研究语境。')});if(!response.ok)throw Error('Import failed');
   }
   await until(async()=>!(await api('/api/knowledge/jobs')).some(j=>['queued','running'].includes(j.state)),'index');
+  ipcMain.handle('connection:is-remote',()=>false);
+  ipcMain.handle('connection:info',()=>({remote:false,url:base,connected:true}));
   ipcMain.handle('api:request',async(_event,req)=>{const res=await fetch(base+req.path,{method:req.method||'GET',headers:{'X-App-Token':token,'Content-Type':'application/json'},body:req.body===undefined?undefined:JSON.stringify(req.body)});const contentType=res.headers.get('content-type')||'';return{status:res.status,contentType,body:contentType.includes('application/octet-stream')?await res.arrayBuffer():await res.json()};});
   ipcMain.handle('file:pick-documents',()=>[]);ipcMain.handle('file:save',(_event,value)=>{if(value.filename.endsWith('.zip')){fs.writeFileSync(path.join(output,'gui-exported-skill.zip'),Buffer.from(value.data));exported=true;}return true;});ipcMain.handle('app:open-external',()=>{});
   win=new BrowserWindow({width:1550,height:1200,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(project,'electron','preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});

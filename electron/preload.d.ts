@@ -1,5 +1,8 @@
 interface Window {
   desktop: {
+    isRemote?(): Promise<boolean>;
+    connectionInfo?(): Promise<{remote:boolean;url:string;connected:boolean}>;
+    connectService?(config:{url:string;token:string}):Promise<void>;
     serviceStatus?(): Promise<{stage:string;message:string;elapsed:number}>;
     setTheme?(theme:'light'|'dark'):Promise<void>;
     workspaceInfo(): Promise<{dataDir:string;configFile:string;changing:boolean;versionDependent:boolean}>;

@@ -28,6 +28,8 @@ app.whenReady().then(async()=>{
   const args=['--port',String(port),'--data-dir',root,'--token',token,'--database-mode','internal'];
   service=spawn(binary||path.join(workspace,'.venv','Scripts','python.exe'),binary?args:[path.join(workspace,'backend','app.py'),...args],{windowsHide:true,stdio:'ignore',env});
   await until(async()=>{if(service.exitCode!==null)throw Error('Service exited');try{return(await fetch(base+'/health')).ok;}catch{return false;}},'service ready');
+  ipcMain.handle('connection:is-remote',()=>false);
+  ipcMain.handle('connection:info',()=>({remote:false,url:base,connected:true}));
   ipcMain.handle('api:request',async(_event,req)=>{const res=await fetch(base+req.path,{method:req.method||'GET',headers:{'X-App-Token':token,'Content-Type':'application/json'},body:req.body===undefined?undefined:JSON.stringify(req.body)});const contentType=res.headers.get('content-type')||'';return{status:res.status,contentType,body:contentType.includes('application/octet-stream')?await res.arrayBuffer():await res.json()};});
   ipcMain.handle('file:pick-documents',()=>[]);ipcMain.handle('file:save',(_event,value)=>{saved=value.filename.endsWith('.md')&&Buffer.from(value.data).equals(fs.readFileSync(part));return true;});ipcMain.handle('app:open-external',()=>{});
   win=new BrowserWindow({width:1530,height:1150,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(workspace,'electron','preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});

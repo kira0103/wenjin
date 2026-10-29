@@ -1,3 +1,4 @@
+import { platform } from '../platform';
 import { createElement, type ReactNode } from 'react';
 
 function inline(text: string): ReactNode[] {
@@ -5,7 +6,7 @@ function inline(text: string): ReactNode[] {
     if (part.startsWith('**')) return <strong key={index}>{part.slice(2,-2)}</strong>;
     if (part.startsWith('`')) return <code key={index}>{part.slice(1,-1)}</code>;
     const link = /^\[([^\]]+)\]\((https:\/\/[^)]+)\)$/.exec(part);
-    return link ? <button className="button-quiet" key={index} onClick={()=>void window.desktop.openExternal(link[2])}>{link[1]}</button> : part;
+    return link ? <button className="button-quiet" key={index} onClick={()=>void platform.openExternal(link[2])}>{link[1]}</button> : part;
   });
 }
 

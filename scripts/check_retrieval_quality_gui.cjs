@@ -39,6 +39,8 @@ app.whenReady().then(async()=>{
   if(!response.ok)throw Error('Fixture import failed');
   let detail;await until(async()=>{detail=await api('/api/knowledge/editions/'+edition.id);return !!detail.active_revision;},'published source');
   await until(async()=>!(await api('/api/knowledge/jobs')).some(j=>['queued','running'].includes(j.state)),'initial indexing',60);
+  ipcMain.handle('connection:is-remote',()=>false);
+  ipcMain.handle('connection:info',()=>({remote:false,url:base,connected:true}));
   ipcMain.handle('api:request',async(event,request)=>{const response=await fetch(base+request.path,{method:request.method||'GET',headers:{'X-App-Token':token,'Content-Type':'application/json'},body:request.body===undefined?undefined:JSON.stringify(request.body)});return{status:response.status,contentType:response.headers.get('content-type'),body:await response.json()};});
   ipcMain.handle('file:pick-documents',()=>[]);ipcMain.handle('file:save',()=>false);ipcMain.handle('app:open-external',()=>{});
   window=new BrowserWindow({width:1500,height:1150,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(project,'electron','preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});

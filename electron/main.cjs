@@ -1,10 +1,12 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, safeStorage } = require('electron');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const net = require('node:net');
 const storagePaths = require('./workspace-path.cjs');
+const connections = require('./connection.cjs');
+const { uploadSelection } = require('./uploads.cjs');
 
 let backend;
 let backendExited=Promise.resolve();
@@ -13,7 +15,9 @@ let backendReady;
 let resolveReady;
 let rejectReady;
 let ready;
-const token = crypto.randomBytes(32).toString('hex');
+let token = crypto.randomBytes(32).toString('hex');
+const remoteMode = !!process.env.SHIXUE_SERVER_URL || process.env.SHIXUE_CLIENT_ONLY === '1' || process.argv.includes('--client') || require('../package.json').clientOnly === true;
+let remoteConnected = false;
 const dev = !app.isPackaged;
 const developmentOrigin = 'http://127.0.0.1:5173';
 
@@ -23,7 +27,8 @@ const candidate=app.getVersion().includes('-rc');
 const appData=app.getPath('appData');
 const bootstrapFile=process.env.SHIXUE_BOOTSTRAP_FILE?path.resolve(process.env.SHIXUE_BOOTSTRAP_FILE):path.join(appData,'shixue-workbench','bootstrap.json');
 const legacyProfile=path.join(appData,candidate?'shixue-workbench-v050-candidate':'shixue-workbench');
-app.setPath('userData',process.env.SHIXUE_DESKTOP_PROFILE?path.resolve(process.env.SHIXUE_DESKTOP_PROFILE):path.join(appData,'shixue-workbench','desktop-profile'));
+app.setPath('userData',process.env.SHIXUE_DESKTOP_PROFILE?path.resolve(process.env.SHIXUE_DESKTOP_PROFILE):path.join(appData,'shixue-workbench',remoteMode?'client-profile':'desktop-profile'));
+const connectionFile = path.join(app.getPath('userData'), 'connection.json');
 let dataDirectory='';
 let workspaceChanging=false;
 const startupStarted=Date.now();
@@ -117,18 +122,35 @@ function apiPath(value) {
   return value;
 }
 
+async function connectRemote(config, persist = false) {
+  const url = connections.normalizeUrl(config.url);
+  if (typeof config.token !== 'string' || !config.token) throw Error('请输入服务连接凭据');
+  const response = await fetch(url + '/api/session', { headers: { 'X-App-Token': config.token }, signal: AbortSignal.timeout(15000) });
+  const session = await response.json();
+  if (!response.ok || !session.authenticated || session.mode !== 'server') throw Error('无法连接独立服务，请检查地址和连接凭据');
+  if (persist) connections.saveConnection(connectionFile, { url, token: config.token }, safeStorage);
+  token = config.token;
+  backendReady = { url }; ready = Promise.resolve(backendReady); remoteConnected = true;
+  startupPhase('ready', '资料服务已连接');
+  windowRef?.webContents.send('service:ready', url);
+}
+
 function registerApi() {
   const knowledgeStreams = new Map();
   const trustedSender = (event) => {
     const source = event.senderFrame?.url || '';
     return dev ? source.startsWith(developmentOrigin) : source.startsWith('file://') && source.includes('/dist/index.html');
   };
+  ipcMain.handle('connection:is-remote', event => { if (!trustedSender(event)) throw Error('不受信任的窗口'); return remoteMode; });
+  ipcMain.handle('connection:info', event => { if (!trustedSender(event)) throw Error('不受信任的窗口'); return { remote: remoteMode, url: backendReady?.url || '', connected: remoteMode ? remoteConnected : true }; });
+  ipcMain.handle('connection:connect', async (event, config) => { if (!trustedSender(event) || !remoteMode) throw Error('当前为本地桌面模式'); await connectRemote(config, true); });
   ipcMain.handle('service:status',event=>{if(!trustedSender(event))throw Error('不受信任的工作台窗口');return {...startupStatus,elapsed:Math.round((Date.now()-startupStarted)/1000)};});
   ipcMain.handle('window:theme',(event,theme)=>{if(!trustedSender(event)||!['light','dark'].includes(theme))throw Error('无效主题');if(windowRef&&!windowRef.isDestroyed()){const color=theme==='dark'?'#181818':'#f7f7f5';windowRef.setBackgroundColor(color);if(process.platform==='win32')windowRef.setTitleBarOverlay({color,symbolColor:theme==='dark'?'#dedede':'#454545',height:44});}});
   ipcMain.handle('api:request', async (event, request) => {
     if (!trustedSender(event)) throw new Error('不受信任的工作台窗口');
     if(workspaceChanging)throw Error('正在切换资料目录，请等待完成');
     const config = backendReady || await ready;
+    if (!config.url) throw Error('请先连接资料服务');
     const method = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(request?.method) ? request.method : 'GET';
     const headers = { 'X-App-Token': token };
     let body;
@@ -141,7 +163,7 @@ function registerApi() {
     }
     const response = await fetch(`${config.url}${apiPath(request.path)}`, { method, headers, body });
     const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/pdf') || contentType.includes('application/octet-stream')) return { status: response.status, contentType, body: await response.arrayBuffer() };
+    if (!contentType.includes('json')) return { status: response.status, contentType, body: await response.arrayBuffer() };
     return { status: response.status, contentType, body: await response.json().catch(() => ({})) };
   });
   ipcMain.handle('api:knowledge-stream', async (event, request) => {
@@ -184,6 +206,7 @@ function registerApi() {
       ...(mode==='files'?{filters:[{name:'文献',extensions:['pdf','docx','doc','txt','md','png','jpg','jpeg','tif','tiff']}]}:{})});
     if(picked.canceled)return null;
     const config=backendReady||await ready;
+    if(remoteMode)return uploadSelection(config,token,mode,picked.filePaths,path.join(app.getPath('userData'),'uploads'));
     const response=await fetch(`${config.url}/api/knowledge/document-imports/preview`,{method:'POST',headers:{'X-App-Token':token,'Content-Type':'application/json'},body:JSON.stringify({mode,paths:picked.filePaths})});
     const value=await response.json();if(!response.ok)throw Error(typeof value.detail==='string'?value.detail:'文献来源预览失败');return value;
   });
@@ -202,9 +225,10 @@ function registerApi() {
     if (!['http:', 'https:'].includes(target.protocol) || !target.hostname || target.username || target.password) return;
     await shell.openExternal(url);
   });
-  ipcMain.handle('storage:info',event=>{if(!trustedSender(event))throw Error('不受信任的窗口');return {dataDir:dataDirectory,configFile:bootstrapFile,changing:workspaceChanging,versionDependent:/[\\/]release[\\/]/i.test(dataDirectory)};});
-  ipcMain.handle('storage:open',async event=>{if(!trustedSender(event))throw Error('不受信任的窗口');await shell.openPath(dataDirectory);});
+  ipcMain.handle('storage:info',event=>{if(!trustedSender(event)||remoteMode)throw Error('资料目录由服务端管理');return {dataDir:dataDirectory,configFile:bootstrapFile,changing:workspaceChanging,versionDependent:/[\\/]release[\\/]/i.test(dataDirectory)};});
+  ipcMain.handle('storage:open',async event=>{if(!trustedSender(event)||remoteMode)throw Error('资料目录由服务端管理');await shell.openPath(dataDirectory);});
   ipcMain.handle('storage:choose',async(event,mode)=>{
+    if(remoteMode)throw Error('资料目录由服务端管理');
     if(!trustedSender(event)||!['migrate','switch'].includes(mode)||workspaceChanging)throw Error('无法切换资料目录');
     const picked=await dialog.showOpenDialog(windowRef,{title:mode==='migrate'?'选择空的固定资料目录（原目录保留）':'选择已有完整资料目录',properties:['openDirectory','createDirectory']});
     if(picked.canceled)return {changed:false};const destination=path.resolve(picked.filePaths[0]),previous=dataDirectory;
@@ -228,6 +252,7 @@ function registerApi() {
     }finally{workspaceChanging=false;}
   });
   ipcMain.handle('library:restore-backup',async event=>{
+    if(remoteMode)throw Error('备份恢复由服务端管理');
     if(!trustedSender(event))throw new Error('不受信任的工作台窗口');
     const bundle=await dialog.showOpenDialog(windowRef,{title:'选择文献库备份',properties:['openFile'],filters:[{name:'文献库备份',extensions:['zip']}]});
     if(bundle.canceled||!bundle.filePaths[0])return {restored:false};
@@ -294,16 +319,26 @@ app.whenReady().then(async () => {
   app.isQuitting = false;
   Menu.setApplicationMenu(null);
   registerApi();
-  dataDirectory=await resolveDataDirectory();
-  startBackend(await findFreePort());
-  createWindow();
-  await ready;storagePaths.writeConfig(bootstrapFile,dataDirectory);
+  if(remoteMode){
+    backendReady={url:''};ready=Promise.resolve(backendReady);
+    try {
+      const configured=process.env.SHIXUE_SERVER_URL ? {url:process.env.SHIXUE_SERVER_URL,token:process.env.SHIXUE_SERVER_TOKEN||''} : connections.loadConnection(connectionFile,safeStorage);
+      if(configured){backendReady={url:configured.url};ready=Promise.resolve(backendReady);if(configured.token)await connectRemote(configured);}
+    }catch{startupPhase('connecting','请输入资料服务地址和连接凭据');}
+    createWindow();
+  }else{
+    dataDirectory=await resolveDataDirectory();
+    startBackend(await findFreePort());
+    createWindow();
+    await ready;storagePaths.writeConfig(bootstrapFile,dataDirectory);
+  }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(error=>{dialog.showErrorBox('工作台未启动',error.message||String(error));quitDrained=true;app.quit();});
 
 let quitDrained = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
+  if(remoteMode)return;
   if(workspaceChanging){event.preventDefault();return;}
   app.isQuitting = true;
   if (quitDrained) return;

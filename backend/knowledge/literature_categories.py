@@ -25,6 +25,9 @@ class LiteratureCategories:
         self.root = root
 
     def _state(self, db, expected=None):
+        from .shared import read_only_library
+        if read_only_library():
+            return r.execute(db,"SELECT revision FROM kb_literature_category_state WHERE workspace_key=current_setting('shixue.workspace')").scalar() or 0
         r.execute(db, "INSERT INTO kb_literature_category_state(workspace_key) VALUES(current_setting('shixue.workspace')) ON CONFLICT DO NOTHING")
         version = r.execute(db, "SELECT revision FROM kb_literature_category_state WHERE workspace_key=current_setting('shixue.workspace') FOR UPDATE").scalar_one()
         if expected is not None and expected != version:

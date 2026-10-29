@@ -1,3 +1,4 @@
+import { platform } from './platform';
 import { useEffect, useRef, useState } from 'react';
 import { Download, FileText, LoaderCircle } from 'lucide-react';
 import { type Material, type Project, type ResearchUnit } from './api';
@@ -73,7 +74,7 @@ function Preparation({ project, material, onCreated, onBusy, onBatch }: { onBatc
     </section>
     {run && <section className="surface prep-section prep-output">
       <div className="prep-output-header"><div><h2>拆分结果</h2><p className="scope-note">{run.summary.source_chars.toLocaleString()} 字原文 · {run.summary.text_count?.toLocaleString()} 份文本 · {new Date(run.created_at).toLocaleString('zh-CN')}</p></div>
-        <div className="action-row prep-result-actions"><button className="button-primary" disabled={!!busy || !ready} onClick={() => void act('导出全部卷文本', async () => { const bytes = await prepApi.exportZip(run.id); if (alive.current) await window.desktop.saveFile({ filename: '拆分卷文本.zip', data: bytes }); })}><Download size={16} />导出全部卷 ZIP</button><button className="button-secondary" disabled={!!busy || !ready || !text} onClick={() => void act('导出当前卷', async () => { const file = await prepApi.exportText(run.id, activeId); if (alive.current) await window.desktop.saveFile({ filename: file.filename, data: new TextEncoder().encode(file.content).buffer }); })}>导出当前卷 TXT</button></div>
+        <div className="action-row prep-result-actions"><button className="button-primary" disabled={!!busy || !ready} onClick={() => void act('导出全部卷文本', async () => { const bytes = await prepApi.exportZip(run.id); if (alive.current) await platform.saveFile({ filename: '拆分卷文本.zip', data: bytes }); })}><Download size={16} />导出全部卷 ZIP</button><button className="button-secondary" disabled={!!busy || !ready || !text} onClick={() => void act('导出当前卷', async () => { const file = await prepApi.exportText(run.id, activeId); if (alive.current) await platform.saveFile({ filename: file.filename, data: new TextEncoder().encode(file.content).buffer }); })}>导出当前卷 TXT</button></div>
       </div>
       {!ready && <p className="prep-notice">这是旧流程保存的待复核结果。点击上方“重新拆分并清洗”，即可生成可直接导出的文本。</p>}
       {!!run.summary.warnings.length && <details className="prep-warnings"><summary>卷题识别说明（{run.summary.warning_count || run.summary.warnings.length} 条）</summary>{run.summary.warnings.slice(0, 10).map((message, i) => <p key={i}>{message}</p>)}{run.summary.warnings.length > 10 && <p>请结合原文检查其余卷题。</p>}</details>}

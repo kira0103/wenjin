@@ -378,6 +378,8 @@ class Runner:
             if pending is not None:pending.set()
 
     def kick(self):
+        if not self.service.embedded_workers:
+            return
         root = Path(self.service.root)
         with self.lock:
             if root in self.shutdown_roots or root in self.workers:
@@ -392,10 +394,16 @@ class Runner:
         owned = False
         heartbeat_stop = threading.Event()
         def heartbeat():
-            while not heartbeat_stop.wait(8):
+            while not heartbeat_stop.wait(1):
                 try:
+                    with self.lock:
+                        pending = [(key,event) for key,event in self.inflight.items() if key[0] == Path(root)]
                     with database(root) as db:
                         db.execute('UPDATE collation_control SET expires=? WHERE id=1 AND owner=?', (time.time()+LEASE_SECONDS,owner))
+                        for (_,batch_id),cancel in pending:
+                            current=db.execute('SELECT status,owner FROM collation_batches WHERE id=?',(batch_id,)).fetchone()
+                            if not current or current['status']=='stopping' or current['owner']!=owner:
+                                cancel.set()
                 except sqlite3.Error:
                     pass
         beat = None
@@ -876,7 +884,7 @@ def register(app, connection, now, call, model_settings, public_settings, servic
             existing = db.execute("SELECT id FROM collation_batches WHERE project_id=? AND run_id=? AND status IN ('queued','running','pausing','stopping') LIMIT 1",(project_id,payload.run_id)).fetchone()
             if existing:
                 raise HTTPException(409,'本次拆分已有活动批次，请先查看该批次')
-            if db.execute("SELECT 1 FROM collation_debug_runs WHERE status='running' LIMIT 1").fetchone():
+            if db.execute("SELECT 1 FROM collation_debug_runs WHERE status IN ('queued','running') LIMIT 1").fetchone():
                 raise HTTPException(409,'请等待当前调试请求完成，再开始批量点校')
             if Path(service.root) in runner.shutdown_roots:
                 raise HTTPException(409,'软件正在退出，请重新打开后执行')
@@ -956,7 +964,7 @@ def register(app, connection, now, call, model_settings, public_settings, servic
             db.execute('BEGIN IMMEDIATE')
             recover(db,now)
             row=batch_row(db,batch_id)
-            if payload.action in {'resume','retry'} and db.execute("SELECT 1 FROM collation_debug_runs WHERE status='running' LIMIT 1").fetchone():
+            if payload.action in {'resume','retry'} and db.execute("SELECT 1 FROM collation_debug_runs WHERE status IN ('queued','running') LIMIT 1").fetchone():
                 raise HTTPException(409,'请等待调试请求完成，再继续批次')
             if payload.action=='pause':
                 if row['status']=='queued':
