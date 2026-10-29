@@ -11,6 +11,7 @@
 | `import_core_corpus.py` | 以 `--data-dir`、`--source` 指定独立目标和古籍源目录 |
 | `check_core_candidate_data.py` | 核验指定目标目录的古籍、原件和索引，需要已导入的资料 |
 | `prepare_assistant_candidate.py` | 显式指定源目录和目标目录，离线复制并核验资料；现有应用内迁移入口优先 |
+| `build_english_journals.py` | 从 ShowJCR 的 `jcr.db` 生成 `backend/data/english_journals.json.gz`（英文期刊库数据，需先自行下载 `jcr.db`） |
 
 | `build_english_journals.py` | 从 ShowJCR 的 `jcr.db` 生成英文期刊库数据 `backend/data/english_journals.json.gz` |
 
