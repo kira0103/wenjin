@@ -13,8 +13,6 @@
 | `prepare_assistant_candidate.py` | 显式指定源目录和目标目录，离线复制并核验资料；现有应用内迁移入口优先 |
 | `build_english_journals.py` | 从 ShowJCR 的 `jcr.db` 生成 `backend/data/english_journals.json.gz`（英文期刊库数据，需先自行下载 `jcr.db`） |
 
-| `build_english_journals.py` | 从 ShowJCR 的 `jcr.db` 生成英文期刊库数据 `backend/data/english_journals.json.gz` |
-
 ## 回归与桌面验收
 
 日常先运行 `npm test`、`npm run build:ui` 和 Python 单元测试。可使用以下工具进行专项验证：
