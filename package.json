@@ -22,11 +22,12 @@
     "portal": ".venv\\Scripts\\python.exe -m backend.portal",
     "build:ui": "tsc --noEmit && vite build",
     "build": "npm run build:ui",
+    "docs:check": "node scripts/check_docs.cjs",
     "build:backend": ".venv\\Scripts\\python.exe -m PyInstaller --noconfirm --clean --onedir --distpath build/backend --hidden-import sqlalchemy.dialects.postgresql.psycopg --collect-all psycopg_binary --collect-all fastembed --collect-all rapidocr_onnxruntime --collect-all onnxruntime --collect-all jieba --collect-all opencc --add-data \"backend/migrations;backend/migrations\" --add-data \"backend/data;backend/data\" --hidden-import backend.knowledge.product_runtime --hidden-import backend.knowledge.activation --hidden-import backend.knowledge.compat --hidden-import backend.knowledge.catalog --hidden-import backend.knowledge.project_sources --hidden-import backend.knowledge.execution --hidden-import backend.knowledge.unified_api --name ShixueWorkbenchService backend/app.py",
     "dist:win": "npm run build:ui && npm run build:backend && electron-builder --win nsis",
     "dist:portable": "npm run build:ui && npm run build:backend && electron-builder --win portable",
     "dist:client": "npm run build:ui && electron-builder --win nsis portable --config electron-builder.client.cjs",
-    "test": "vitest run src && node --test tests/workspace_path.test.cjs tests/client_connection.test.cjs",
+    "test": "npm run docs:check && vitest run src && node --test tests/workspace_path.test.cjs tests/client_connection.test.cjs",
     "dist:candidate": "npm run build:ui && npm run build:backend && electron-builder --win nsis portable --config.directories.output=release/v0.5.0-rc.12 --config.appId=cn.shixue.workbench.candidate --config.productName=史学工作台候选版 --config.nsis.shortcutName=史学工作台候选版"
   },
   "dependencies": {

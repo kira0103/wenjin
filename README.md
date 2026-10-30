@@ -1,98 +1,118 @@
-# 问津 Wenjin · 史学工作台
+# 问津 Wenjin
 
-面向个人历史研究的 Windows 桌面工作台，将文献原件、研究项目、古籍点校、阅读笔记和论文投稿放在同一工作区。
+文献阅读、历史研究、古籍点校与论文投稿工作台。版本号以 [package.json](package.json) 为准，代码统一维护在 `main`。
 
-当前版本：**0.5.0-rc.12**（开发候选版）。应用内名称暂沿用“史学工作台”，包名为 `shixue-workbench`。
+**日常使用看这一份；安装、部署、开发和备份看 [维护手册](docs/MAINTENANCE.md)。项目只维护这两份文档。**
 
-## 能做什么
+最后核对：2026-10-30。以下命令在项目根目录的 PowerShell 7 中执行；当前本机目录为 `E:\写作软件`。
 
-- **文献库**：导入 PDF、Word、TXT、Markdown 和目录，维护书目、版本、分类与附件；同一文献可被多个项目引用。
-- **阅读与摘录**：PDF 连续滚动、文字阅读、原文定位、摘录与项目关联。
-- **古籍整理**：本地拆分与清洗卷文本，批量 AI 点校，断点继续、差异对照、校记和人工审定。
-- **研究助手**：文献检索、向量与关键词混合检索、带来源的研究问答，以及可配置的助手与 Skill。
-- **论文投稿**：中文 C 刊库（CSSCI，含 C 扩）与英文期刊库（JCR 2025 / 中科院 2025 / 新锐 2026 分区对照，可按学科与分区筛选）、CSV 导入、论文进度、投稿与返修记录、研究成果关联，见[期刊库说明](docs/english-journals.md)。
-- **本地管理**：工作区迁移、备份恢复、内置 PostgreSQL + pgvector，以及外部数据库模式。
+## 选择启动方式
 
-AI 输出需要人工核验；点校中的文字变化会进入差异复核。古籍拆分的固定规则主要针对《古今合璧事类备要》，其他版式应先验证。
+| 你要做什么 | 启动方式 | 页面与数据 |
+| --- | --- | --- |
+| 使用本机 Windows 桌面版 | [桌面版](#桌面版)：`npm run dev` | Electron 自动启动本机后端，打开自己的资料目录 |
+| 使用多账号 Web 和管理员后台 | [Web 门户](#web-门户)：`npm run portal` | 浏览器账号登录；公共文献共享，个人研究分别保存 |
+| 使用 Electron 薄客户端 | [薄客户端](#薄客户端)：`npm run dev:client` | 连接个人资料服务，使用服务地址与令牌；目前尚未接入 Web 门户账号 |
 
-## 从源码运行
+本机已安装依赖、准备好数据库运行时后，可直接按下文启动。全新克隆先完成 [首次安装](docs/MAINTENANCE.md#首次安装)。
 
-主要支持 Windows x64。准备 Node.js 22、npm、Python 3.12；以下命令使用 PowerShell。
-
-```powershell
-git clone https://github.com/kira0103/wenjin.git
-cd wenjin
-npm ci
-py -3.12 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-```
-
-完整文献库需要数据库。开发时可使用 Docker Desktop 启动独立的 PostgreSQL：
+## 桌面版
 
 ```powershell
-.venv\Scripts\python.exe -m backend.knowledge.cli dev-prepare
-docker compose -f compose.knowledge.yml up -d --wait
-.venv\Scripts\python.exe -m backend.knowledge.cli dev-upgrade
-.venv\Scripts\python.exe -m backend.knowledge.cli dev-configure --data-dir '.\工作台数据'
 npm run dev
 ```
 
-首次启动选择“建立工作区”，配置文件会记住实际资料路径。上述命令适用于全新克隆；已有工作区请使用其实际路径，开发环境勿连接正式研究数据库。
+这会启动 Windows 客户端和本机业务服务。首次启动选择已有资料目录或建立新工作区；后续启动沿用保存的目录。当前开发目录默认是 `工作台数据/`，实际路径可在“模型与设置 → 数据与备份”查看。
 
-`npm run dev` 同时启动 Vite 和 Electron，Electron 自动启动 Python 服务。独立服务模式下可使用普通浏览器，或通过 `npm run dev:client` 启动 Electron 薄客户端；服务启动、分块上传与部署方式见[前后端分离说明](docs/client-server.md)。
+本机模型在“模型与设置”中配置。使用已有研究资料时，继续选择原工作区；新建工作区会显示一份空资料库。
 
-多用户 Web 门户提供 `/app/` 个人工作区与 `/admin/` 管理员后台。账号共享文献、原件与检索索引，项目、任务、笔记和成果独立保存；管理员维护公共资料、账号和模型。初始化和启动方式见 [Web 门户说明](docs/web-portal.md)。
+## Web 门户
 
-不使用 Docker 时，可准备 `build/postgres` 内置运行时，见[数据库与打包说明](docs/development.md)。正式桌面包包含 Python 和数据库运行时，日常使用无需安装 Python 或 Docker。
-
-## 模型和数据
-
-在“模型与设置”中配置兼容 OpenAI Chat Completions 的服务地址、模型名与 API 密钥。模型服务可能收费；检索和本地模型的首次准备可能需要下载文件。AI 请求会将所选文本和检索上下文发给配置的服务商。
-
-模型密钥与外部数据库密码通过系统凭据库保存；内置数据库凭据由程序生成并保存在资料目录的受限私有配置中。不要共享工作区、凭据文件或带密码的连接 URL。
-
-新克隆默认没有文献、论文和真实期刊目录。投稿管理提供[虚构 CSV 示例](backend/data/journals.example.csv)，可从界面导入自己的目录。核心古籍需要自行准备本地来源目录并导入，仓库不附带全量语料和模型权重。
-
-开发工作区默认位于项目下的 `工作台数据/`，已被 Git 忽略；也可在应用中选择已有工作区。备份应通过“数据与备份”操作，或正常退出后复制完整资料目录，不要只复制 SQLite 文件。
-
-## 验证与构建
+先构建页面；管理员账号只需初始化一次。示例门户资料保存在 `.local/portal-preview/`，与桌面工作区分开。
 
 ```powershell
-npm test
 npm run build:ui
-.venv\Scripts\python.exe -m unittest discover -s tests -v
+$env:SHIXUE_PORTAL_ADMIN_PASSWORD = Read-Host '设置管理员密码，至少12位' -MaskInput
+npm run portal -- --data-dir .local/portal-preview --init-admin admin
+Remove-Item Env:SHIXUE_PORTAL_ADMIN_PASSWORD
 ```
 
-默认后端测试使用临时目录与模拟模型；真实 PostgreSQL 和 Windows 内置数据库集成测试需显式启用，见[开发说明](docs/development.md)。
-
-准备内置 PostgreSQL 后，可打包 Windows 桌面程序：
+启动服务并保持终端运行：
 
 ```powershell
-npm run dist:win
-npm run dist:portable
-# 候选版同时生成安装版和免安装版
-npm run dist:candidate
+npm run portal -- --data-dir .local/portal-preview --ui-dir dist --port 8765
 ```
 
-输出位于 `release/`；`build/`、`dist/`、`release/` 均不提交到源码仓库。源码推送不会自动发布安装包。
-
-## 项目结构
-
-| 目录 | 用途 |
+| 地址 | 用途 |
 | --- | --- |
-| `src/` | React + TypeScript 界面 |
-| `electron/` | 桌面窗口、IPC、服务与工作区启动 |
-| `backend/` | FastAPI 服务、研究与点校、知识库 |
-| `backend/migrations/` | PostgreSQL 结构迁移，升级旧库所需 |
-| `tests/` | Python 与桌面路径测试；前端测试也位于 `src/` |
-| `deployment/` | 数据库初始化与固定摘要的运行时依赖清单 |
-| `scripts/` | 构建、数据检查与隔离桌面验收工具，见[脚本说明](scripts/README.md) |
-| `docs/` | 面向仓库使用者的开发与维护文档 |
+| [管理员后台](http://127.0.0.1:8765/admin/) | 用初始化的 `admin` 账号管理用户、公共资料和模型 |
+| [用户工作区](http://127.0.0.1:8765/app/) | 用管理员建立的账号登录，首次使用临时密码时修改密码 |
+| [服务状态](http://127.0.0.1:8765/health) | 检查门户是否存活；返回 `ok: true` |
 
-更多架构关系见 [CODEBASE.md](CODEBASE.md)，协作约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+门户自动启动所需的数据库、API 和 Worker。首次打开工作区需要等待初始化；关闭网页或退出登录后，后台任务继续运行。
 
-## 仓库边界
+只检查页面和资料阅读可以先不配置模型。执行 AI 任务前，在启动服务的同一终端设置密钥，再到后台“模型服务”填写地址和名称：
 
-仓库仅包含代码、测试和公开开发文档。本机研究数据、真实期刊目录、密钥、数据库、日志、备份、安装包及内部设计验收记录已排除。提交前仍应检查暂存内容，见 [SECURITY.md](SECURITY.md)。
+```powershell
+$env:SHIXUE_MODEL_API_KEY = Read-Host '模型 API Key' -MaskInput
+```
 
-第三方依赖、模型与语料分别遵循其自身许可。仓库目前未另行声明项目开源许可证。
+密钥应在启动门户前设置。已有工作区会沿用启动时的密钥；更换密钥时先[完整停止门户和工作区](#停止与备份)，再带新环境启动。
+
+修改 Web 界面时，保持门户运行，在另一个终端执行 `npm run dev:web`，访问 [开发页面](http://127.0.0.1:5173/app/)。
+
+## 薄客户端
+
+先按 [个人服务部署](docs/MAINTENANCE.md#个人服务部署) 启动独立 API 和 Worker，再执行：
+
+```powershell
+npm run dev:client
+```
+
+连接页填写个人服务的根地址和 `SHIXUE_SERVER_TOKEN`。当前薄客户端使用个人服务令牌，不能直接用多账号门户的用户名、密码登录。
+
+`dev`、`dev:web`、`dev:client` 都使用开发端口 5173，一次运行其中一种即可。
+
+## 日常操作
+
+| 功能 | 入口与使用方式 |
+| --- | --- |
+| 文献、原件与分类 | “文献库”导入和阅读 PDF、Word、TXT、Markdown、扫描图片或目录；Web 门户由管理员发布公共文献 |
+| 项目研究与点校 | 在项目中选用文献，确定底本、参校本和页段；工作稿、任务和成果保存在当前研究空间 |
+| 摘录与研究助手 | 选取原文并保留出处，用所选资料检索、问答和整理研究结果；AI 结果需要人工核验 |
+| 论文与期刊 | “论文投稿管理”跟进写作、投稿、返修，查看“中文C刊库”和“英文期刊库” |
+| 模型与外观 | 桌面版在“模型与设置”中配置；Web 用户管理个人设置，管理员统一配置模型服务 |
+
+Web 的文献、原件、录文修订和索引共享一份；项目、选材、摘录、笔记、任务、成果和投稿记录按账号保存。公共录文更新后，历史摘录与固定任务输入快照继续保留。
+
+期刊目录是本地数据快照。中文目录可从 CSV 导入；英文目录读取 `backend/data/english_journals.json.gz`。这些真实数据文件保存在本机，不随 Git 提交；页面展示的是数据文件标记的版本，详见 [可选资料](docs/MAINTENANCE.md#可选资料)。
+
+## 检查是否正常
+
+1. 桌面版能打开原项目，阅读一份文献，并在“论文投稿管理 → 英文期刊库”查询刊名或 ISSN。
+2. Web 管理员建立两个测试账号，发布一份测试 TXT；两个账号都能阅读原件。
+3. 账号 A 建项目、选材和保存摘录；账号 B 的个人研究空间看不到这些记录，也没有公共文献的修改入口。
+4. 配置模型后执行一个小任务；关闭网页再登录，仍能查看任务进度或结果。
+
+常见问题：
+
+| 现象 | 检查位置 |
+| --- | --- |
+| `npm run dev` 打开 Windows 窗口 | 这是桌面入口；浏览器入口使用门户的 `/app/`、`/admin/` |
+| 旧项目或资料不见了 | 查看当前资料目录、账号和运行方式；桌面工作区与新门户的数据分别保存 |
+| 英文期刊标签存在，但提示数据缺失 | 核对本机的 `backend/data/english_journals.json.gz`；恢复文件后重启后端 |
+| 页面更新了，但新接口报错 | 退出客户端、停止原开发命令后重新启动，让 Python 后端也加载新代码 |
+| 5173 已占用 | 停止之前的开发命令，再启动所需入口 |
+| AI 任务无法执行 | 核对模型地址、名称、密钥和后台进程；检查门户后台的模型配置 |
+
+## 停止与备份
+
+桌面版正常退出后再迁移或复制资料。个人服务停止 API 和 Worker 后维护数据。完整备份需要数据库、原件和工作稿配套保存，不能只复制 SQLite。
+
+Web 门户关闭浏览器后仍会执行任务。完整停机时，先停止对外门户，再请求各工作区和共享数据库正常退出：
+
+```powershell
+npm run portal -- --data-dir .local/portal-preview --stop-workspaces
+```
+
+备份范围、旧资料迁入及恢复条件见 [备份与迁移](docs/MAINTENANCE.md#备份与迁移)。模型请求会把所选文本发给配置的服务商；账号库、密钥和研究资料按私有数据保管。

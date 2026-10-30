@@ -64,7 +64,10 @@ process.stdout.write(JSON.stringify({frontend_files_verified:count,electron_file
         ('fixed-runtime-report.json','实际资料运行验收.json'),('startup-close-report.json','启动退出验收.json'),
         ('frontend-tests.log','前端回归.log'),('project-tests.log','项目助手回归.log'),('full-result.json','完整回归结果.json'),
     ):shutil.copy2(OUT/name,RELEASE/destination)
-    shutil.copy2(ROOT/f'连续阅读与项目助手-{VERSION}-使用与验收.md',RELEASE/'使用与验收.md')
+    for relative in ('README.md','docs/MAINTENANCE.md'):
+        destination=RELEASE/relative
+        destination.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(ROOT/relative,destination)
     report={'sealed':True,'version':VERSION,'schema_revision':'kb0012',**json.loads(checked.stdout),
             'backend_files_verified':len(source),'dataDir':str(DATA),'actual_workspace_upgrade_pending':False,
             'schema_change':False,'automatic_backup':False,'version_data_copy':False,

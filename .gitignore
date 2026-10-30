@@ -70,12 +70,9 @@ worker-status.json
 **/private/runtimes/
 **/private/models.json
 
-# Local historical design/acceptance notes; public documentation lives in docs/
+# Root documentation has one entry; technical maintenance lives in docs/MAINTENANCE.md.
 /*.md
 !/README.md
-!/CODEBASE.md
-!/CONTRIBUTING.md
-!/SECURITY.md
 
 # Editor / operating system files
 .vscode/
