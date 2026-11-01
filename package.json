@@ -12,14 +12,20 @@
   "bugs": {
     "url": "https://github.com/kira0103/wenjin/issues"
   },
-  "main": "electron/main.cjs",
+  "main": "electron/portal-main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "start": ".venv\\Scripts\\python.exe -m backend.launcher",
+    "stop": ".venv\\Scripts\\python.exe -m backend.launcher --stop",
+    "dev": "electron .",
     "dev:web": "vite --host 127.0.0.1",
-    "dev:client": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron . --client\"",
+    "dev:client": "electron .",
+    "dev:local": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron electron/main.cjs\"",
+    "dev:personal-server": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron electron/main.cjs --client\"",
     "server": ".venv\\Scripts\\python.exe -m backend.server",
     "worker": ".venv\\Scripts\\python.exe -m backend.worker",
     "portal": ".venv\\Scripts\\python.exe -m backend.portal",
+    "setup:gpu": ".venv\\Scripts\\python.exe scripts/setup_gpu_runtime.py",
+    "setup:fp16": ".venv\\Scripts\\python.exe scripts/optimize_embedding_fp16.py --validate",
     "build:ui": "tsc --noEmit && vite build",
     "build": "npm run build:ui",
     "docs:check": "node scripts/check_docs.cjs",
@@ -27,7 +33,7 @@
     "dist:win": "npm run build:ui && npm run build:backend && electron-builder --win nsis",
     "dist:portable": "npm run build:ui && npm run build:backend && electron-builder --win portable",
     "dist:client": "npm run build:ui && electron-builder --win nsis portable --config electron-builder.client.cjs",
-    "test": "npm run docs:check && vitest run src && node --test tests/workspace_path.test.cjs tests/client_connection.test.cjs",
+    "test": "npm run docs:check && vitest run src && node --test tests/workspace_path.test.cjs tests/client_connection.test.cjs tests/portal_url.test.cjs",
     "dist:candidate": "npm run build:ui && npm run build:backend && electron-builder --win nsis portable --config.directories.output=release/v0.5.0-rc.12 --config.appId=cn.shixue.workbench.candidate --config.productName=史学工作台候选版 --config.nsis.shortcutName=史学工作台候选版"
   },
   "dependencies": {

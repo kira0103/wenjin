@@ -154,6 +154,49 @@ class ResearchNative(unittest.TestCase):
         self.assertLessEqual(value['usage']['calls'],3);self.assertLessEqual(value['usage']['reserved_tokens'],8000)
         self.assertEqual(value['state'],'succeeded')
 
+    def test_query_rewrite_calls_are_included_in_research_budget_and_frozen_policy(self):
+        from backend.knowledge import retrieval_settings
+        from backend.knowledge.schemas import QueryOptions
+        original=retrieval_settings.read(self.root)
+        try:
+            retrieval_settings.save(self.root,{'version':original['version'],'options':{**original['options'],'query':QueryOptions(mode='rewrite',include_original=False).model_dump()}})
+            run=self.queued(max_rounds=6,token_budget=60000)
+            # Later global edits do not remove the query policy from this run.
+            current=retrieval_settings.read(self.root)
+            retrieval_settings.save(self.root,{'version':current['version'],'options':original['options']})
+            plans=0;rewrites=0;calls=0
+            def complete(messages,settings,budget):
+                nonlocal plans,rewrites,calls
+                calls+=1
+                if '你只负责优化检索输入' in messages[0]['content']:
+                    rewrites+=1;return {'text':'{"queries":["财政赋税"]}','usage':{'total_tokens':20}}
+                if '每轮仅输出一个 JSON 对象' in messages[0]['content']:
+                    plans+=1
+                    return {'text':json.dumps({'action':'search','query':'赋税征收','mode':'keyword'} if plans==1 else {'action':'finish'}),'usage':{'total_tokens':30}}
+                return {'text':'原文记载财政赋税与折银制度。[E1]','usage':{'total_tokens':40}}
+            result=self.execute(run,complete)
+            self.assertEqual(result['state'],'succeeded');self.assertEqual(rewrites,1)
+            self.assertEqual(result['usage']['calls'],calls);self.assertEqual(calls,4)
+            self.assertLessEqual(result['usage']['reserved_tokens'],60000)
+            self.assertTrue(any(step['arguments'].get('phase')=='query_processing' for step in result['steps']))
+            current=retrieval_settings.read(self.root)
+            retrieval_settings.save(self.root,{'version':current['version'],'options':{**original['options'],'query':QueryOptions(mode='rewrite',include_original=False).model_dump()}})
+            bounded=self.queued(max_rounds=3,token_budget=60000)
+            planning=0;optimized=0
+            def limited(messages,settings,budget):
+                nonlocal planning,optimized
+                if '你只负责优化检索输入' in messages[0]['content']:
+                    optimized+=1;return {'text':'{"queries":["财政赋税"]}'}
+                if '每轮仅输出一个 JSON 对象' in messages[0]['content']:
+                    planning+=1;return {'text':json.dumps({'action':'search','query':'财政赋税' if planning==1 else '折银','mode':'keyword'})}
+                return {'text':'原文记载财政赋税与折银制度。[E1]'}
+            final=self.execute(bounded,limited)
+            self.assertEqual(final['state'],'succeeded');self.assertEqual(optimized,1)
+            self.assertEqual(final['usage']['calls'],4)
+        finally:
+            current=retrieval_settings.read(self.root)
+            retrieval_settings.save(self.root,{'version':current['version'],'options':original['options']})
+
     def test_direct_quote_mismatch_is_rejected(self):
         run=self.queued()
         with self.assertRaises(HTTPException):self.execute(run,self.fake([{'action':'search','query':'财政赋税','mode':'exact'},{'action':'finish'}],body='原文说“这是一段虚构的古籍直接引文” [E1]'))

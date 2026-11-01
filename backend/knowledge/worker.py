@@ -1,4 +1,4 @@
-import threading
+import threading,time
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import HTTPException
@@ -77,10 +77,14 @@ class Worker:
                                  "JOIN kb_jobs j ON j.id=t.job_id WHERE n.research_run_id=:run",run=job['payload'].get('run_id')).scalar() if job['kind']=='research' else None
             if state['state']!='running' or state['owner']!=owner or not state['lease_valid']:raise Cancelled()
             if parent and parent!='running':raise Cancelled()
-        def progress(stage,value):
+        last_progress=[None,None,0.0]
+        def progress(stage,value,detail=None):
+            now=time.monotonic()
+            if last_progress[:2]==[stage,value] and now-last_progress[2]<.5:return
             with r.database.transaction(root) as connection:
-                r.execute(connection,'UPDATE kb_jobs SET stage=:stage,progress=:p,updated_at=now() WHERE id=:id AND owner=:owner AND state=\'running\' AND lease_until>clock_timestamp()',
-                          stage=stage,p=value,id=identifier,owner=owner)
+                r.execute(connection,"UPDATE kb_jobs SET stage=:stage,progress=:p,result=jsonb_set(COALESCE(result,'{}'::jsonb),'{progress}',CAST(:detail AS jsonb)),updated_at=now() WHERE id=:id AND owner=:owner AND state='running' AND lease_until>clock_timestamp()",
+                          stage=stage,p=value,detail=r.j(detail or {}),id=identifier,owner=owner)
+            last_progress[:]=[stage,value,now]
         def heartbeat():
             while not finished.wait(8):
                 try:
@@ -103,6 +107,9 @@ class Worker:
             elif job['kind']=='rerank_model':
                 from .reranking import prepare
                 result=prepare(self.root,check,progress)
+            elif job['kind']=='embedding_model':
+                from .embedding_download import prepare
+                result=prepare(root,job['payload']['embedding'],check,progress)
             elif job['kind']=='research':
                 from .research_assistant import process
                 if not self.research_model_settings or not self.research_completion:raise HTTPException(503,'研究模型配置暂不可用')

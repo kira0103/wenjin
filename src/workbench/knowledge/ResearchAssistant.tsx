@@ -23,8 +23,8 @@ type Props={embedded?:boolean;editions:Edition[];projectId:string;onOpenSource(i
 export default function ResearchAssistant(props:Props){
   const [mode,setMode]=useState<'single'|'team'>('single');
   useEffect(()=>{if(props.trial)setMode('single');},[props.trial]);
-  return <><div className="kb-toolbar"><button className={mode==='single'?'button-primary':'button-secondary'} onClick={()=>setMode('single')}>单助手研究</button><button className={mode==='team'?'button-primary':'button-secondary'} onClick={()=>{props.onClearTrial?.();setMode('team');}}>协同研究</button></div>
-    {mode==='team'?<CollaborationResearch {...props}/>:<SingleResearchAssistant {...props}/>}</>;
+  return <div className="assistant-workspace"><div className="assistant-mode-tabs" role="tablist" aria-label="研究方式"><button role="tab" aria-selected={mode==='single'} className={mode==='single'?'button-primary':'button-secondary'} onClick={()=>setMode('single')}>单助手研究</button><button role="tab" aria-selected={mode==='team'} className={mode==='team'?'button-primary':'button-secondary'} onClick={()=>{props.onClearTrial?.();setMode('team');}}>协同研究</button></div>
+    {mode==='team'?<CollaborationResearch {...props}/>:<SingleResearchAssistant {...props}/>}</div>;
 }
 
 function SingleResearchAssistant({editions,projectId,onOpenSource,onSaveNote,onSettings,trial,onClearTrial,initialQuery,initialEdition,initialFilter,embedded}:Props) {
@@ -44,7 +44,7 @@ function SingleResearchAssistant({editions,projectId,onOpenSource,onSaveNote,onS
   }catch(e){if(alive)setError(e instanceof Error?e.message:'研究过程无法读取');}};void refresh();const timer=setInterval(()=>void refresh(),2000);
     return()=>{alive=false;clearInterval(timer);};},[selected]);
   async function act(fn:()=>Promise<void>){setBusy(true);setError('');try{await fn();}catch(e){setError(e instanceof Error?e.message:'研究请求未完成');}finally{setBusy(false);}}
-  async function start(){const value=await request<Run>(trial?`/api/knowledge/skills/${trial.id}/tests`:'/api/knowledge/research-runs','POST',{query,mode:'hybrid',task,source_kinds:['document'],request_key:crypto.randomUUID(),context_project_id:embedded?projectId:null,
+  async function start(){const value=await request<Run>(trial?`/api/knowledge/skills/${trial.id}/tests`:'/api/knowledge/research-runs','POST',{query,mode:'auto',task,source_kinds:['document'],request_key:crypto.randomUUID(),context_project_id:embedded?projectId:null,
     scope:{...(scope==='library'?libraryFilter:{}),include_core:true,edition_ids:scope==='edition'?[edition]:[],project_id:scope==='project'?projectId:null},max_rounds:rounds,token_budget:budget,
     ...(trial?{version_id:trial.version||null,edit_version:trial.editVersion||0}:{agent_version_id:agent||null})});
     setRun(value);setSelected(value.id);setTrace(null);}
@@ -55,17 +55,17 @@ function SingleResearchAssistant({editions,projectId,onOpenSource,onSaveNote,onS
     {trial?<p className="scope-note">技能测试：{trialName} · {trial.version?'固定历史版本':'已保存草稿'}。请选择样本文献和研究问题。<button className="button-quiet" onClick={onClearTrial}>退出技能测试</button></p>:
       <label>研究角色<select aria-label="单助手角色" value={agent} onChange={e=>setAgent(e.target.value)}><option value="">通用研究助手</option>{agents.filter(a=>a.enabled&&a.active_version).map(a=><option key={a.id} value={a.active_version!}>{a.draft.name} · v{a.active_number}</option>)}</select></label>}
     <form onSubmit={e=>{e.preventDefault();void act(start);}}>
-      <textarea aria-label="研究问题" required maxLength={1000} value={query} onChange={e=>setQuery(e.target.value)} placeholder="例如：书中“望云”条引用了哪些典籍？请对照原文解释，并指出证据不足之处。"/>
-      <div className="kb-toolbar"><label>资料范围 <select aria-label="研究资料范围" value={scope} onChange={e=>setScope(e.target.value)}><option value="library">按分类、目录或文件选择</option><option value="edition">指定版本</option><option value="project">当前项目</option><option value="all">全部文献</option></select></label>
-        {scope==='library'&&<LibraryScopePicker value={libraryFilter} onChange={setLibraryFilter}/>}{scope==='edition'&&<select aria-label="研究指定版本" required value={edition} onChange={e=>setEdition(e.target.value)}><option value="">选择版本</option>{editions.map(e=><option key={e.id} value={e.id}>{e.title} · {e.label}</option>)}</select>}
-        <select aria-label="研究成果类型" value={task} onChange={e=>setTask(e.target.value)}><option value="answer">研究问答</option><option value="outline">带出处提纲</option><option value="paragraph">段落草稿</option><option value="overview">资料概述</option></select>
-        <button className="button-primary" disabled={busy||!query.trim()||(scope==='edition'&&!edition)||(scope==='library'&&!hasLibraryScope(libraryFilter))} type="submit">开始研究</button><button className="button-quiet" type="button" onClick={onSettings}>模型与设置</button></div>
-      <details className="kb-quality"><summary>研究预算</summary><div className="kb-toolbar"><label>补查轮次上限 <input aria-label="研究轮次上限" type="number" min={2} max={12} value={rounds} onChange={e=>setRounds(Number(e.target.value))}/></label>
+      <label className="assistant-question">研究问题<textarea aria-label="研究问题" required maxLength={1000} value={query} onChange={e=>setQuery(e.target.value)} placeholder="例如：书中“望云”条引用了哪些典籍？请对照原文解释，并指出证据不足之处。"/></label>
+      <div className="assistant-source-fields"><label>资料范围<select aria-label="研究资料范围" value={scope} onChange={e=>setScope(e.target.value)}><option value="library">按分类、目录或文件选择</option><option value="edition">指定版本</option><option value="project">当前项目</option><option value="all">全部文献</option></select></label><label>成果类型<select aria-label="研究成果类型" value={task} onChange={e=>setTask(e.target.value)}><option value="answer">研究问答</option><option value="outline">带出处提纲</option><option value="paragraph">段落草稿</option><option value="overview">资料概述</option></select></label></div>
+      {scope==='library'&&<LibraryScopePicker value={libraryFilter} onChange={setLibraryFilter}/>}
+      {scope==='edition'&&<label>指定版本<select aria-label="研究指定版本" required value={edition} onChange={e=>setEdition(e.target.value)}><option value="">选择版本</option>{editions.map(e=><option key={e.id} value={e.id}>{e.title} · {e.label}</option>)}</select></label>}
+      <div className="assistant-form-actions"><button className="button-primary" disabled={busy||!query.trim()||(scope==='edition'&&!edition)||(scope==='library'&&!hasLibraryScope(libraryFilter))} type="submit">开始研究</button><button className="button-secondary" type="button" onClick={onSettings}>设置</button></div>
+      <details className="kb-quality"><summary>研究预算</summary><div className="assistant-budget-fields"><label>补查轮次上限 <input aria-label="研究轮次上限" type="number" min={2} max={12} value={rounds} onChange={e=>setRounds(Number(e.target.value))}/></label>
         <label>输入与输出保守预算 <input aria-label="研究用量预算" type="number" min={8000} max={120000} step={1000} value={budget} onChange={e=>setBudget(Number(e.target.value))}/></label></div>
         <p>一次研究会多次调用您配置的问答模型；云端模型会接收问题和用于查证的原文片段。预算按 UTF-8 字节和输出上限保守计算，实际计费以服务商为准。</p></details>
     </form>
     {error&&<p className="persistent-error" role="alert">{error}</p>}
-    <div className="kb-toolbar"><label>研究记录 <select aria-label="选择研究记录" value={selected} onChange={e=>{setSelected(e.target.value);setTrace(null);}}><option value="">选择记录</option>{runs.map(r=><option key={r.id} value={r.id}>{r.question.slice(0,50)} · {labels[r.state]||r.state}</option>)}</select></label></div>
+    <div className="assistant-history"><label>研究记录 <select aria-label="选择研究记录" value={selected} onChange={e=>{setSelected(e.target.value);setTrace(null);}}><option value="">选择记录</option>{runs.map(r=><option key={r.id} value={r.id}>{r.question.slice(0,50)} · {labels[r.state]||r.state}</option>)}</select></label></div>
     {run&&<><div className="kb-card"><div><strong>{run.question}</strong><p role="status">{labels[run.state]||run.state} · {labels[run.stage]||run.stage} · {run.progress}%</p>{run.error&&<p className="persistent-error">{run.error}</p>}</div>
       {active?<button className="button-secondary" disabled={busy} onClick={()=>void act(async()=>setRun(await request<Run>(`/api/knowledge/research-runs/${run.id}/cancel`,'POST')))}>停止研究</button>:
         <button className="button-secondary" disabled={busy} onClick={()=>void act(async()=>{const next=await request<Run>(`/api/knowledge/research-runs/${run.id}/retry`,'POST');setRun(next);setSelected(next.id);})}>重新研究</button>}</div>

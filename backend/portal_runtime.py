@@ -6,6 +6,8 @@ import sys
 
 def main():
     role = sys.argv.pop(1)
+    from .knowledge.inference_runtime import activate
+    activate()
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--data-dir', required=True)
     args, _ = parser.parse_known_args()

@@ -14,13 +14,17 @@ def normalize(value):
         return _converter.convert(value).lower()
 
 
-def tokenize(value):
-    value = normalize(value)
+def tokenize_normalized(value):
+    """Segment text that is already normalized; avoids a second OpenCC pass."""
     with _lock:
         words = [w for w in jieba.cut(value) if re.search(r'[\w\u3400-\u9fff]', w)]
     # Add single Han characters for rare/classical terms missed by dictionary segmentation.
     words.extend(c for c in value if '\u3400' <= c <= '\u9fff')
     return ' '.join(words)
+
+
+def tokenize(value):
+    return tokenize_normalized(normalize(value))
 
 
 def chunks(value, size=100, overlap=15):

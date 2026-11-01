@@ -14,7 +14,7 @@ from sqlalchemy.engine import Engine, make_url
 from .config import connection_url,managed_url,managed_failure
 from .shared import private_schema, library_key, SHARED_TABLES
 
-SCHEMA_REVISION = "kb0012"
+SCHEMA_REVISION = "kb0015"
 REQUIRED_TABLES = ("kb_libraries", "kb_works", "kb_editions", "kb_assets",
                    "kb_edition_assets", "kb_pages", "kb_page_labels", "kb_revisions",
                    "kb_blocks", "kb_indexes", "kb_chunks", "kb_notes", "kb_jobs", "kb_anchors",
@@ -78,6 +78,7 @@ class KnowledgeDatabase:
                 connection.execute(text("SELECT pg_advisory_xact_lock_shared(824171,2)"))
                 workspace=library_key(workspace_key(root))
                 connection.execute(text("SELECT set_config('shixue.workspace',:key,true)"),{'key':workspace})
+                connection.execute(text("SELECT set_config('shixue.catalog_workspace',:key,true)"), {'key': workspace_key(root) if private_schema() else workspace})
                 yield connection
 
     def health(self, root: Path) -> dict:
@@ -102,7 +103,7 @@ class KnowledgeDatabase:
                 result["missing_tables"] = [table for table in REQUIRED_TABLES if not connection.execute(
                     text("SELECT to_regclass(:name)"), {"name": table}).scalar_one()]
                 role = connection.execute(text(
-                    "SELECT rolsuper,rolcreatedb,rolcreaterole FROM pg_roles WHERE rolname=current_user")).one()
+                    "SELECT rolsuper,rolcreatedb,rolcreaterole,rolbypassrls FROM pg_roles WHERE rolname=current_user")).one()
                 schema_create = connection.execute(text(
                     "SELECT has_schema_privilege(current_user,'public','CREATE')")).scalar_one()
                 owns_tables = connection.execute(text(
@@ -115,7 +116,7 @@ class KnowledgeDatabase:
                     "SELECT has_table_privilege(current_user,:name,'SELECT') AND "
                     "(:readonly OR (has_table_privilege(current_user,:name,'INSERT') AND "
                     "has_table_privilege(current_user,:name,'UPDATE') AND has_table_privilege(current_user,:name,'DELETE')))"),
-                    {"name": name, "readonly": bool(private_schema() and name in SHARED_TABLES)}).scalar_one() for name in REQUIRED_TABLES)
+                    {"name": name, "readonly": name == "kb_schema_version"}).scalar_one() for name in REQUIRED_TABLES)
                 if private_schema():
                     result['mode'] = 'shared-library'
                     layout = connection.execute(text('SELECT layout,revision FROM wj_private_schema_version')).one()

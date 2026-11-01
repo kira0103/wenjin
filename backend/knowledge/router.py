@@ -6,6 +6,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy.exc import SQLAlchemyError
+try:
+    from backend.errors import problem_response,install_handlers
+except ModuleNotFoundError:
+    from errors import problem_response,install_handlers
 
 from .config import SettingsUpdate, save_settings, settings_view
 from .database import database
@@ -23,14 +27,15 @@ class CredentialSafeRoute(APIRoute):
                 return JSONResponse(status_code=422, content={"detail": [
                     {"loc": list(item["loc"]), "msg": item["msg"], "type": item["type"]}
                     for item in error.errors()]})
-            except SQLAlchemyError:
-                return JSONResponse(status_code=503,content={'detail':'文献库操作未完成，请检查数据库状态或资料关联'})
-            except ValueError:
-                return JSONResponse(status_code=503,content={'detail':'文献库处理未完成，请检查配置和资料状态'})
+            except HTTPException:
+                raise
+            except Exception as error:
+                return problem_response(request,error)
         return handler
 
 
 def register(app, service, legacy_connection=None, completion=None, model_settings=None):
+    install_handlers(app)
     router = APIRouter(prefix="/api/knowledge", tags=["knowledge"], route_class=CredentialSafeRoute)
     config_lock = RLock()
 

@@ -2,7 +2,7 @@ from uuid import UUID
 from typing import Literal
 from fastapi import Query,HTTPException
 from pydantic import Field,model_validator
-from .schemas import Strict,Scope
+from .schemas import Strict,Scope,IngestionOptions,ChunkConfig
 from .document_library import DocumentLibrary,has_selection
 from .document_imports import DocumentImports
 from .worker import worker
@@ -16,6 +16,8 @@ class SourcePreview(Strict):
 class StartImport(Strict):
     category_name:str=Field(default='',max_length=100)
     item_type:Literal['ancient','article','thesis']='article'
+    processing:IngestionOptions|None=None
+    document_strategies:dict[str,ChunkConfig]=Field(default_factory=dict,max_length=5000)
 
 
 class GroupRename(Strict):
@@ -35,6 +37,10 @@ class MoveDocuments(Strict):
 
 
 def register(router,root,local_connection,now):
+    @router.get('/document-import-options')
+    def import_options():
+        from .retrieval_settings import read
+        return {'processing':read(root())['options']['ingestion']}
     @router.get('/document-groups')
     def groups():return DocumentLibrary(root()).groups()
 
@@ -81,7 +87,9 @@ def register(router,root,local_connection,now):
 
     @router.post('/document-imports/{identifier}/start')
     def start(identifier:UUID,payload:StartImport):
-        result=DocumentImports(root()).start(identifier,payload.category_name,payload.item_type)
+        result=DocumentImports(root()).start(identifier,payload.category_name,payload.item_type,
+                    processing=payload.processing.model_dump() if payload.processing else None,
+                    document_strategies={path:config.model_dump() for path,config in payload.document_strategies.items()})
         worker.start(root());return result
 
     @router.get('/document-imports/{identifier}')

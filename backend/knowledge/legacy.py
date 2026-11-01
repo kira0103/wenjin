@@ -76,7 +76,7 @@ def migrate(root,payload,check,progress):
                       'label':book.get('version_label',''),'source_note':book.get('raw_reference','')})
                     edition_id=new['id'];entry_editions[material['entry_id']]=edition_id
                 asset=r.execute(connection,'INSERT INTO kb_assets(id,sha256,storage_key,size_bytes,mime_type) VALUES(:id,:h,:k,:s,:mime) '
-                         'ON CONFLICT(sha256) DO UPDATE SET sha256=excluded.sha256 RETURNING id',id=r.uid(),h=digest,k=key,s=len(data),mime='application/pdf' if material['file_format']=='pdf' else 'application/octet-stream').scalar_one()
+                         'ON CONFLICT(owner_role,sha256) DO UPDATE SET sha256=excluded.sha256 RETURNING id',id=r.uid(),h=digest,k=key,s=len(data),mime='application/pdf' if material['file_format']=='pdf' else 'application/octet-stream').scalar_one()
                 r.execute(connection,'INSERT INTO kb_edition_assets(edition_id,asset_id,filename,position_kind,ordinal) '
                           'VALUES(:e,:a,:f,:p,:o) ON CONFLICT DO NOTHING',e=edition_id,a=asset,f=material['filename'],p=material['position_kind'],o=number)
                 r.execute(connection,'INSERT INTO kb_legacy_links(material_id,entry_id,edition_id,asset_id,source_digest) VALUES(:m,:entry,:e,:a,:h)',

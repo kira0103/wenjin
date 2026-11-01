@@ -46,7 +46,7 @@ export type EnglishJournalResponse = {
   meta: EnglishMeta
 };
 
-const endpoint = '/api/submissions/english-journals';
+
 const VERSION_NOTE = 'JCR 2025（Clarivate 2025 版，2026 年 6 月发布）· 中科院 2025 大类分区 · 新锐 2026';
 const PAGE_SIZES: number[] = [20, 50, 100];
 const JCR_TIERS = ['Q1', 'Q2', 'Q3', 'Q4'];
@@ -83,7 +83,7 @@ const errorHint = (detail: string) => {
   return '请确认本地服务正在运行，然后重试。';
 };
 
-export default function EnglishJournalLibrary() {
+export default function EnglishJournalLibrary({endpoint='/api/submissions/english-journals'}:{endpoint?:string}) {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [discipline, setDiscipline] = useState('');

@@ -11,6 +11,8 @@ import uuid
 from pathlib import Path
 
 SESSION_SECONDS = 12 * 60 * 60
+DEFAULT_ADMIN_USERNAME = 'admin'
+DEFAULT_ADMIN_PASSWORD = 'admin123'
 
 
 class AccountError(ValueError):
@@ -20,6 +22,10 @@ class AccountError(ValueError):
 def password_hash(password, salt=None):
     if not isinstance(password, str) or not 12 <= len(password) <= 256:
         raise AccountError('密码需要 12–256 个字符')
+    return _password_digest(password, salt)
+
+
+def _password_digest(password, salt=None):
     salt = salt or secrets.token_hex(16)
     digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=32768, r=8, p=1,
                             maxmem=64 * 1024 * 1024, dklen=32).hex()
@@ -27,9 +33,10 @@ def password_hash(password, salt=None):
 
 
 def password_matches(password, encoded):
+    if not isinstance(password, str) or not 1 <= len(password) <= 256:return False
     try:
         method, salt, _ = encoded.split('$')
-        return method == 'scrypt' and hmac.compare_digest(password_hash(password, salt), encoded)
+        return method == 'scrypt' and hmac.compare_digest(_password_digest(password, salt), encoded)
     except (AccountError, ValueError, TypeError):
         return False
 
@@ -78,7 +85,9 @@ class Accounts:
         name = display_name.strip()
         if not name or len(name) > 80:
             raise AccountError('显示名称需要 1–80 个字符')
-        encoded = password_hash(password)
+        # The known initial credential is allowed only through local bootstrap.
+        initial_admin = bootstrap and role == 'admin' and username == DEFAULT_ADMIN_USERNAME and password == DEFAULT_ADMIN_PASSWORD
+        encoded = _password_digest(password) if initial_admin else password_hash(password)
         with self.connection() as db:
             db.execute('BEGIN IMMEDIATE')
             if bootstrap and db.execute("SELECT 1 FROM portal_users WHERE role='admin' LIMIT 1").fetchone():

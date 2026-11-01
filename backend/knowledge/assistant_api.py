@@ -44,7 +44,7 @@ def register(router,root,resolve_scope,model_settings):
         @router.post(path)
         def add(payload:registry.Definition):
             with r.database.transaction(root()) as c:
-                if r.execute(c,"SELECT 1 FROM kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind=:k AND slug=:s",k=kind,s=payload.slug).scalar():raise HTTPException(409,'标识已存在，请修改标识或编辑原项目')
+                if r.execute(c,"SELECT 1 FROM public.kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind=:k AND slug=:s",k=kind,s=payload.slug).scalar():raise HTTPException(409,'标识已存在，请修改标识或编辑原项目')
                 identifier=registry.insert(c,kind,payload)
             return registry.detail(root(),identifier,kind)
 
@@ -60,7 +60,7 @@ def register(router,root,resolve_scope,model_settings):
                 content=payload.model_dump(mode='json',exclude={'edit_version'})
                 if kind=='skill' and content['skill_version_ids']:raise HTTPException(400,'技能不能绑定其他技能')
                 for v in content['skill_version_ids']:registry.release(c,v,'skill')
-                r.execute(c,'UPDATE kb_assistant_definitions SET draft=CAST(:d AS jsonb),edit_version=edit_version+1,updated_at=now() WHERE id=:id',id=identifier,d=r.j(content))
+                r.execute(c,'UPDATE public.kb_assistant_definitions SET draft=CAST(:d AS jsonb),edit_version=edit_version+1,updated_at=now() WHERE id=:id',id=identifier,d=r.j(content))
             return registry.detail(root(),identifier,kind)
 
         @router.post(path+'/{identifier}/publish')
@@ -74,7 +74,7 @@ def register(router,root,resolve_scope,model_settings):
         def state(identifier:UUID,payload:State):
             with r.database.transaction(root()) as c:
                 registry.row(c,identifier,kind)
-                r.execute(c,'UPDATE kb_assistant_definitions SET enabled=:v,updated_at=now() WHERE id=:id',id=identifier,v=payload.enabled)
+                r.execute(c,'UPDATE public.kb_assistant_definitions SET enabled=:v,updated_at=now() WHERE id=:id',id=identifier,v=payload.enabled)
             return registry.detail(root(),identifier,kind)
 
         @router.post(path+'/{identifier}/activate')
@@ -83,7 +83,7 @@ def register(router,root,resolve_scope,model_settings):
                 registry.row(c,identifier,kind,lock=True)
                 v=registry.release(c,payload.version_id,kind,new_run=False)
                 if str(v['definition_id'])!=str(identifier):raise HTTPException(400,'该版本不属于当前项目')
-                r.execute(c,'UPDATE kb_assistant_definitions SET active_version=:v,updated_at=now() WHERE id=:id',id=identifier,v=payload.version_id)
+                r.execute(c,'UPDATE public.kb_assistant_definitions SET active_version=:v,updated_at=now() WHERE id=:id',id=identifier,v=payload.version_id)
             return registry.detail(root(),identifier,kind)
 
         @router.post(path+'/{identifier}/versions/{version}/revoke')
@@ -96,15 +96,15 @@ def register(router,root,resolve_scope,model_settings):
                 r.execute(c,"UPDATE kb_jobs j SET state='cancelled',updated_at=now() FROM kb_research_runs rr "
                           "WHERE rr.job_id=j.id AND rr.workspace_key=current_setting('shixue.workspace') AND j.state IN ('queued','running') "
                           "AND (rr.snapshot->'assistant'->'agent'->>'id'=:v OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(rr.snapshot->'assistant'->'skills','[]')) s WHERE s->>'id'=:v))",v=str(version))
-                r.execute(c,'UPDATE kb_assistant_versions SET revoked=true WHERE id=:id',id=version)
+                r.execute(c,'UPDATE public.kb_assistant_versions SET revoked=true WHERE id=:id',id=version)
             return registry.detail(root(),identifier,kind)
 
         @router.delete(path+'/{identifier}')
         def delete(identifier:UUID):
             with r.database.transaction(root()) as c:
                 registry.row(c,identifier,kind,lock=True)
-                if r.execute(c,'SELECT 1 FROM kb_assistant_versions WHERE definition_id=:id',id=identifier).scalar():raise HTTPException(409,'已发布版本需保留历史，请使用停用')
-                r.execute(c,'DELETE FROM kb_assistant_definitions WHERE id=:id',id=identifier)
+                if r.execute(c,'SELECT 1 FROM public.kb_assistant_versions WHERE definition_id=:id',id=identifier).scalar():raise HTTPException(409,'已发布版本需保留历史，请使用停用')
+                r.execute(c,'DELETE FROM public.kb_assistant_definitions WHERE id=:id',id=identifier)
             return {'deleted':True}
 
     # Register concrete collection actions before identifier routes.
@@ -123,7 +123,7 @@ def register(router,root,resolve_scope,model_settings):
         draft=registry.import_package(data)
         with r.database.transaction(root()) as c:
             slug=draft.slug
-            if r.execute(c,"SELECT 1 FROM kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind='skill' AND slug=:s",s=slug).scalar():
+            if r.execute(c,"SELECT 1 FROM public.kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind='skill' AND slug=:s",s=slug).scalar():
                 draft=draft.model_copy(update={'slug':slug[:48]+'-copy-'+r.uid()[:8]})
             identifier=registry.insert(c,'skill',draft)
         return registry.detail(root(),identifier,'skill')
@@ -161,6 +161,6 @@ def register(router,root,resolve_scope,model_settings):
     def tests(identifier:UUID):
         with r.database.transaction(root()) as c:
             registry.row(c,identifier,'skill')
-            return r.rows(c,"SELECT t.*,j.state,rr.question,rr.answer,rr.usage,j.error FROM kb_skill_tests t JOIN kb_assistant_versions v ON v.id=t.skill_version_id "
+            return r.rows(c,"SELECT t.*,j.state,rr.question,rr.answer,rr.usage,j.error FROM kb_skill_tests t JOIN public.kb_assistant_versions v ON v.id=t.skill_version_id "
                           "JOIN kb_research_runs rr ON rr.id=t.research_run_id JOIN kb_jobs j ON j.id=rr.job_id "
                           "WHERE v.definition_id=:id AND t.workspace_key=current_setting('shixue.workspace') ORDER BY t.created_at DESC LIMIT 30",id=identifier)

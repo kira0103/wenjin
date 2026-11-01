@@ -109,15 +109,22 @@ class DocumentFoldersNative(unittest.TestCase):
         from backend.knowledge.managed import ManagedPostgres
         # Separate cluster: no changes to the class fixture or any user data.
         with tempfile.TemporaryDirectory(dir=self.root.parent) as name:
-            root=Path(name)/'data';product=ProductDatabase(root,'internal')
-            try:product.start();self.assertFalse(product.startup_error);service.initialize(root)
-            finally:product.stop()
+            root=Path(name)/'data';service.initialize(root)
             manager=ManagedPostgres(root)
             try:
                 manager.start()
-                with manager.connect() as db:
-                    db.execute('DROP TABLE kb_document_imports,kb_document_entries,kb_document_groups,kb_document_library_state')
-                    db.execute("UPDATE kb_schema_version SET version_num='kb0011'")
+                # Build the actual old layout. Editing a current DB's version marker
+                # leaves newer ownership columns/functions behind and is not an upgrade fixture.
+                from alembic import command
+                from alembic.config import Config
+                from backend.knowledge.database import build_engine
+                engine=build_engine(manager.url)
+                try:
+                    with engine.begin() as db:
+                        config=Config();config.set_main_option('script_location',str(Path(__file__).resolve().parents[1]/'backend'/'migrations'))
+                        config.attributes['connection']=db
+                        command.upgrade(config,'kb0011')
+                finally:engine.dispose()
             finally:manager.stop()
             frozen=hashlib.sha256((root/'library.sqlite').read_bytes()).hexdigest()
             backups=root/'backups'
@@ -125,7 +132,7 @@ class DocumentFoldersNative(unittest.TestCase):
             product=ProductDatabase(root,'internal')
             try:
                 product.start();self.assertFalse(product.startup_error)
-                self.assertEqual(r.database.health(root)['schema_revision'],'kb0012')
+                self.assertEqual(r.database.health(root)['schema_revision'],r.database.health(root)['expected_revision'])
                 self.assertEqual(hashlib.sha256((root/'library.sqlite').read_bytes()).hexdigest(),frozen)
                 after={p.relative_to(backups):hashlib.sha256(p.read_bytes()).hexdigest() for p in backups.rglob('*') if p.is_file()}
                 self.assertEqual(after,before)

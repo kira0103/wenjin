@@ -1,5 +1,6 @@
 import re
 from time import perf_counter
+from contextlib import nullcontext
 from fastapi import HTTPException
 
 from . import repository as r
@@ -14,6 +15,10 @@ from .document_library import scope_sql as document_scope_sql, has_selection as 
 
 def scope_sql(scope,values):
     result='NOT e.deleted AND e.active_revision=b.revision_id'
+    if scope.get('library_visibility') == 'system':
+        result += ' AND e.owner_role IS NULL'
+    elif scope.get('library_visibility') == 'personal':
+        result += ' AND e.owner_role=public.kb_document_owner()'
     result+=document_scope_sql(scope,values)
     if scope.get('asset_ids'):
         values['scope_assets']=[str(v) for v in scope['asset_ids']];result+=' AND b.asset_id=ANY(CAST(:scope_assets AS uuid[]))'
@@ -48,37 +53,86 @@ def scope_sql(scope,values):
     return result
 
 
-def search(root,payload):
+def search(root,payload,query_completion=None,query_settings=None):
     if not payload['query'].strip():raise HTTPException(400,'查询不能为空白')
     trace=Trace(payload)
     try:
-        found=_search(root,payload,trace)
+        saved=retrieval_settings.read(root)
+        options=RetrievalOptions.model_validate(payload.get('retrieval') or saved['options']).model_dump(mode='json')
+        from .query_processing import transform
+        begin=perf_counter();trace.data['active_stage']='query_processing'
+        mode=options['default_mode'] if payload.get('mode','auto')=='auto' else payload['mode']
+        transformed=transform(payload['query'],options['query'],query_completion,query_settings,exact=mode=='exact',semantic=mode in {'semantic','hybrid'})
+        trace.data['query_processing']=transformed
+        trace.stage('query_processing',begin,**transformed)
+        request={**payload,'retrieval':options,'_ranking_query':payload['query']}
+        queries=transformed['queries']
+        if len(queries)==1:
+            found=_search(root,{**request,'query':queries[0],'_semantic_query':transformed.get('hypothetical_passage') or queries[0]},trace)
+        else:
+            with r.database.transaction(root,isolation_level='REPEATABLE READ') as connection:
+                channels=[];warnings=[];notes={}
+                candidate_options={**options,'rerank_enabled':False,'parent_enabled':False}
+                for n,query in enumerate(queries):
+                    first=len(trace.data['stages'])
+                    result=_search(root,{**request,'query':query,'limit':options['recall_candidates'],'retrieval':candidate_options},trace,connection)
+                    for stage in trace.data['stages'][first:]:stage['query_number']=n+1
+                    channels.append(('query_'+str(n+1),[item for item in result['results'] if item['source_kind']=='document']))
+                    notes.update({str(item['id']):item for item in result['results'] if item['source_kind']=='note'})
+                    warnings.extend(result['warnings'])
+                begin=perf_counter();trace.data['active_stage']='query_fusion'
+                results,duplicates=fusion(channels)
+                trace.stage('query_fusion',begin,queries=len(queries),unique_blocks=len(results),duplicate_candidates=duplicates)
+                begin=perf_counter();trace.data['active_stage']='rerank'
+                results,rerank_detail=reranking.apply(root,payload['query'],results,options,result['mode'])
+                trace.stage('rerank',begin,**rerank_detail)
+                if rerank_detail['outcome'] in {'model_not_ready','model_error'}:warnings.append('重排模型未就绪或推理未完成，本次保留融合排序')
+                begin=perf_counter();trace.data['active_stage']='selection'
+                limit=payload.get('limit') or options['top_k']
+                quota=min(len(notes),max(1,limit//3)) if results else limit
+                results=results[:max(0,limit-min(quota,len(notes)))]+list(notes.values())[:quota]
+                trace.stage('selection',begin,returned=len(results),limit=limit)
+                begin=perf_counter();trace.data['active_stage']='parent_context'
+                plans=parent_context.attach(connection,[item for item in results if item['source_kind']=='document'],payload.get('scope',{}),options,scope_sql)
+                trace.stage('parent_context',begin,enabled=options['parent_enabled'],parents=plans,returned=len(plans))
+                trace.data['active_stage']='complete'
+                found={**result,'results':results,'retrieval':options,'warnings':list(dict.fromkeys(warnings))}
+        if transformed['outcome'] in {'model_error','model_not_configured'}:found['warnings'].append('Query 处理未完成，本次保留原问题进行检索')
+        trace.payload={**payload,'mode':found['mode'],'retrieval':options}
+        trace.data.update(retrieval=options,retrieval_settings_version=saved['version'])
     except Exception:
         # Never persist exception strings: driver/model errors can contain credentials.
         trace.data['failed_stage']=trace.data.get('active_stage','scope')
         try:trace.save(root,[],outcome='failed')
         except Exception:pass
         raise
+    # Raw parent references are internal candidates. Only the scope-checked
+    # parent_context may be returned or used as evidence.
+    for item in found['results']:item.pop('parent_spans',None)
     trace.save(root,found['results'])
     return {**found,'retrieval_run_id':trace.id,'diagnostics':trace.data}
 
 
-def _search(root,payload,trace):
-    query=payload['query'].strip();mode=payload.get('mode','hybrid');limit=payload.get('limit',20)
-    values={'query':query,'normalized':normalize(query),'tokens':tokenize(query),'n':max(60,limit*3)}
+def _search(root,payload,trace,connection=None):
+    query=payload['query'].strip();mode=payload.get('mode','auto')
+    values={'query':query,'normalized':normalize(query),'tokens':tokenize(query)}
     scope=payload.get('scope',{});where=scope_sql(scope,values)
     if not payload.get('include_commentary',True):where+=" AND b.kind='body'"
     base=' FROM kb_chunks c JOIN kb_blocks b ON b.id=c.block_id JOIN kb_revisions rev ON rev.id=b.revision_id JOIN kb_editions e ON e.id=rev.edition_id JOIN kb_works w ON w.id=e.work_id '
-    fields='c.id,c.index_id,c.block_id,c.start_offset,c.end_offset,c.body,b.body full_body,b.ordinal,b.asset_id,b.page_index,b.kind,b.section_path,b.quality,e.id edition_id,e.label,w.title,b.revision_id'
+    fields='c.id,c.index_id,c.block_id,c.start_offset,c.end_offset,c.body,c.parent_spans,b.body full_body,b.ordinal,b.asset_id,b.page_index,b.kind,b.section_path,b.quality,e.id edition_id,e.label,w.title,b.revision_id'
     lists=[];warnings=[]
     # Keyword, vector and source identities see one consistent published snapshot.
-    with r.database.transaction(root,isolation_level='REPEATABLE READ') as connection:
+    with (nullcontext(connection) if connection is not None else r.database.transaction(root,isolation_level='REPEATABLE READ')) as connection:
         begin=perf_counter()
         trace.data['active_stage']='scope'
         saved=retrieval_settings.read(root,connection)
-        options=RetrievalOptions.model_validate(payload.get('retrieval') or saved['options']).model_dump()
-        trace.payload={**payload,'retrieval':options}
-        trace.data.update(retrieval_settings_version=saved['version'],retrieval=options)
+        options=RetrievalOptions.model_validate(payload.get('retrieval') or saved['options']).model_dump(mode='json')
+        requested_mode=mode
+        mode=options['default_mode'] if mode=='auto' else mode
+        limit=payload.get('limit') or options['top_k']
+        values['n']=max(limit,options['recall_candidates'])
+        trace.payload={**payload,'mode':mode,'limit':limit,'retrieval':options}
+        trace.data.update(retrieval_settings_version=saved['version'],retrieval=options,requested_mode=requested_mode,effective_mode=mode)
         snapshot=r.rows(connection,'SELECT DISTINCT e.id edition_id,b.revision_id,e.active_index index_id,i.model_key,i.state index_state,i.config '
                         'FROM kb_blocks b JOIN kb_revisions rev ON rev.id=b.revision_id JOIN kb_editions e ON e.id=rev.edition_id '
                         'LEFT JOIN kb_indexes i ON i.id=e.active_index WHERE '+where+' ORDER BY e.id',**values)
@@ -118,32 +172,56 @@ def _search(root,payload,trace):
             lists.append(('normalized_substring',substring))
             trace.stage('normalized_substring',begin,candidates=len(substring),candidate_limit=values['n'],possibly_truncated=len(substring)==values['n'])
         available=[item for item in snapshot if item['model_key'] and item['index_state']=='ready']
-        if mode in {'semantic','hybrid'}:
+        fallback_lexical=False
+        if mode=='semantic' or mode=='hybrid' and options['semantic_weight']>0:
             begin=perf_counter()
             trace.data['active_stage']='semantic'
             if not available:
-                if mode=='semantic':raise HTTPException(409,'当前范围还没有已完成的向量索引，请等待索引任务或先使用关键词检索')
+                if mode=='semantic' or not options['hybrid_fallback']:raise HTTPException(409,'当前范围还没有已完成的向量索引，请等待索引任务或先使用关键词检索')
+                fallback_lexical=True
                 warnings.append('当前范围的向量索引尚未就绪，本次使用关键词检索')
                 trace.stage('semantic',begin,outcome='no_index',candidates=0)
             else:
-                vectors,key=embed(root,[query]);values.update(vector=r.j(vectors[0]),model_key=key)
-                r.execute(connection,"SET LOCAL hnsw.iterative_scan='strict_order'")
-                r.execute(connection,'SET LOCAL hnsw.ef_search=120')
-                semantic=r.rows(connection,'SELECT '+fields+base+'JOIN kb_indexes i ON i.id=c.index_id WHERE '+where+
-                              ' AND c.index_id=e.active_index AND i.model_key=:model_key AND c.embedding IS NOT NULL '
-                              'ORDER BY c.embedding <=> CAST(:vector AS vector),e.id,b.ordinal,c.start_offset LIMIT :n',**values)
-                lists.append(('semantic',semantic))
-                trace.stage('semantic',begin,candidates=len(semantic),candidate_limit=values['n'],model_key=key,possibly_truncated=len(semantic)==values['n'])
-                if not any(item['model_key']==key for item in available):warnings.append('已有索引模型与当前模型不同，请重建索引')
+                try:
+                    from .models import embedding_context
+                    with embedding_context(options['embedding'],'query'):
+                        vectors,key=embed(root,[payload.get('_semantic_query') or query])
+                except Exception:
+                    if mode=='semantic' or not options['hybrid_fallback']:raise HTTPException(503,'向量模型暂不可用，请检查后台模型状态或改用关键词检索') from None
+                    fallback_lexical=True
+                    warnings.append('后台向量模型暂不可用，本次使用关键词检索')
+                    trace.stage('semantic',begin,outcome='model_error',candidates=0)
+                else:
+                    if not any(item['model_key']==key for item in available):
+                        if mode=='semantic' or not options['hybrid_fallback']:raise HTTPException(409,'已有索引与当前向量模型不匹配，请重建索引')
+                        fallback_lexical=True
+                        warnings.append('已有索引模型与当前模型不同，本次使用关键词检索；请重建索引')
+                        trace.stage('semantic',begin,outcome='model_mismatch',candidates=0)
+                    else:
+                        mismatched=sum(item['model_key']!=key for item in available)
+                        if mismatched:warnings.append(f'当前范围有 {mismatched} 份文献使用其他向量模型，语义召回暂不覆盖这些索引；请重建索引')
+                        values.update(vector=r.j(vectors[0]),model_key=key)
+                        r.execute(connection,"SET LOCAL hnsw.iterative_scan='strict_order'")
+                        r.execute(connection,'SET LOCAL hnsw.ef_search=120')
+                        dimensions=len(vectors[0]);cast_type='vector' if dimensions<=2000 else 'halfvec'
+                        distance=f'c.embedding::{cast_type}({dimensions}) <=> CAST(:vector AS {cast_type}({dimensions}))' if dimensions in {384,512,768,1024,1536,2048,3072} else 'c.embedding <=> CAST(:vector AS vector)'
+                        semantic=r.rows(connection,'SELECT '+fields+',1-(c.embedding <=> CAST(:vector AS vector)) semantic_score'+base+'JOIN kb_indexes i ON i.id=c.index_id WHERE '+where+
+                                      ' AND c.index_id=e.active_index AND i.model_key=:model_key AND c.embedding IS NOT NULL '
+                                      f'AND vector_dims(c.embedding)={dimensions} ORDER BY '+distance+',e.id,b.ordinal,c.start_offset LIMIT :n',**values)
+                        before=len(semantic)
+                        if options['semantic_min_score'] is not None:semantic=[item for item in semantic if item['semantic_score']>=options['semantic_min_score']]
+                        lists.append(('semantic',semantic))
+                        trace.stage('semantic',begin,outcome='completed',candidates=len(semantic),candidate_limit=values['n'],model_key=key,
+                                    discarded_by_threshold=before-len(semantic),min_score=options['semantic_min_score'],possibly_truncated=before==values['n'])
         begin=perf_counter()
         trace.data['active_stage']='fusion'
-        fused,duplicates=fusion(lists)
+        fused,duplicates=fusion(lists,options['semantic_weight'] if mode=='hybrid' and not fallback_lexical else None)
         results=fused if 'document' in payload.get('source_kinds',['document']) else []
         trace.stage('fusion',begin,input_candidates=sum(len(items) for _,items in lists),unique_blocks=len(fused),duplicate_candidates=duplicates,
                     candidates=[{'block_id':str(item['block_id']),'score':item['score'],'channels':item['channels']} for item in fused],
                     rerank='enabled' if options['rerank_enabled'] else 'disabled')
         begin=perf_counter();trace.data['active_stage']='rerank'
-        results,rerank_detail=reranking.apply(root,query,results,options,mode)
+        results,rerank_detail=reranking.apply(root,payload.get('_ranking_query') or query,results,options,mode)
         trace.stage('rerank',begin,**rerank_detail)
         if rerank_detail['outcome'] in {'model_not_ready','model_error'}:
             warnings.append('重排模型未就绪或推理未完成，本次保留原有融合排序；请查看检索诊断')
@@ -177,7 +255,7 @@ def occurrence_count(root,query,scope):
 
 
 def answer(root,payload,completion,settings):
-    found=search(root,{**payload,'limit':10,'source_kinds':['document']})
+    found=search(root,{**payload,'source_kinds':['document']})
     evidence=[]
     context=int(settings.get('context_tokens') or 8192)
     output_budget=min(2500,int(settings.get('max_output_tokens') or 2500),max(256,context//3))

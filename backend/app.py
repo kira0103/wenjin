@@ -82,6 +82,24 @@ app = FastAPI(title="史学工作台本地服务", version="0.5.0-rc.12", docs_u
 
 class TokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        try:
+            from backend.knowledge.shared import private_schema
+        except ModuleNotFoundError:
+            from knowledge.shared import private_schema
+        if private_schema() and request.method not in {'GET','HEAD'} and service.root:
+            match = re.match(r'^/api/knowledge/(?:(?:catalog/)?(works|editions)|(?P<group>document-groups)|(?P<category>literature-categories))/(?P<id>[a-fA-F0-9-]{36})(?:/|$)', request.url.path)
+            if match:
+                try:
+                    from backend.knowledge import repository as r
+                except ModuleNotFoundError:
+                    from knowledge import repository as r
+                table = 'kb_document_groups' if match['group'] else 'kb_literature_categories' if match['category'] else 'kb_' + match[1]
+                def owned():
+                    with r.database.transaction(service.root) as db:
+                        return r.execute(db, f'SELECT owner_role IS NOT DISTINCT FROM public.kb_document_owner() FROM {table} WHERE id=CAST(:id AS uuid)', id=match['id']).scalar()
+                permitted = await run_in_threadpool(owned)
+                if permitted is not True:
+                    return Response(status_code=403 if permitted is False else 404, media_type='application/json',content=json.dumps({'detail':'系统文献由管理员维护' if permitted is False else '找不到目标资料'},ensure_ascii=False))
         if getattr(service,'catalog_maintenance',False) and request.method not in {'GET','HEAD'} and request.url.path not in {'/api/knowledge/activation','/api/service/exit'}:
             return Response(status_code=409,media_type='application/json',content=json.dumps({'detail':'文献库正在备份和升级，请等待完成'},ensure_ascii=False))
         if request.method not in {'GET','HEAD'} and service.root:
@@ -373,7 +391,10 @@ async def import_material(request: Request, project_id: str | None = None, filen
             try:
                 from backend.knowledge.catalog import CatalogService
                 from backend.knowledge.project_sources import ProjectSourceService
-                from backend.knowledge import repository as repository
+                try:
+                    from backend.knowledge import repository as r
+                except ModuleNotFoundError:
+                    from knowledge import repository as repository
                 from backend.knowledge.worker import worker
             except ModuleNotFoundError:
                 from knowledge.catalog import CatalogService
@@ -1001,7 +1022,13 @@ def main():
     parser.add_argument('--inspect-workspace', type=Path)
     parser.add_argument('--migrate-workspace', type=Path)
     parser.add_argument('--workspace-target', type=Path)
+    parser.add_argument('--embedding-download-request',type=Path)
+    parser.add_argument('--embedding-download-result',type=Path)
     args = parser.parse_args()
+    if args.embedding_download_request:
+        if not args.embedding_download_result:parser.error('模型下载需要结果文件')
+        from backend.knowledge.embedding_download import child_main
+        raise SystemExit(child_main(args.embedding_download_request,args.embedding_download_result))
     if args.inspect_workspace or args.migrate_workspace:
         try:
             try:

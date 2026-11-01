@@ -45,7 +45,7 @@ export default function AssistantManagement({onDirtyChange,onTest}:{onDirtyChang
       {kind==='skills'&&<><label className="button-secondary">导入 ZIP<input aria-label="导入技能包" type="file" accept=".zip" disabled={busy} onChange={e=>{const f=e.currentTarget.files;void act(()=>importFiles(f));e.currentTarget.value='';}}/></label>
         <label className="button-secondary">导入技能目录<input ref={folderInput} aria-label="导入技能目录" type="file" multiple disabled={busy} onChange={e=>{const f=e.currentTarget.files;void act(()=>importFiles(f));e.currentTarget.value='';}}/></label></>}
     </div>
-    <div className="kb-config-layout"><div className="kb-list">{list.filter(v=>(v.draft.name+' '+v.draft.description).includes(filter)).map(value=><button key={value.id} className="kb-card kb-note-row" disabled={busy} onClick={()=>{if(leave())void act(async()=>load(await request<AssistantDefinition>(`/api/knowledge/${kind}/${value.id}`)));}}>
+    <div className={`kb-config-layout ${draft?'has-editor':''}`}><div className="kb-list">{list.filter(v=>(v.draft.name+' '+v.draft.description).includes(filter)).map(value=><button key={value.id} className="kb-card kb-note-row" disabled={busy} onClick={()=>{if(leave())void act(async()=>load(await request<AssistantDefinition>(`/api/knowledge/${kind}/${value.id}`)));}}>
       <strong>{value.draft.name}</strong><span>{value.enabled?'已启用':'已停用'} · {value.active_version?'默认 v'+value.active_number:'未发布默认版本'}</span><small>{value.draft.description}</small></button>)}</div>
     {draft&&<div className="kb-editor"><h3>{item?'编辑':'新增'}{kind==='skills'?'技能':'智能体'}</h3>
       <label>名称<input aria-label="配置名称" value={draft.name} maxLength={100} onChange={e=>update({name:e.target.value})}/></label>

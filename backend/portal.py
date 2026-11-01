@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
+from .errors import install_handlers
 from .auth import same_origin
 from .portal_accounts import Accounts, AccountError, SESSION_SECONDS, public_user
 from .portal_fleet import WorkspaceFleet
@@ -66,7 +67,15 @@ class ModelConfiguration(BaseModel):
 
 
 def restricted_workspace_api(path, method):
-    if path.startswith('/api/admin') or path.startswith('/api/me'):
+    if path.startswith('/api/knowledge/embedding-'):return True
+    if path.startswith('/api/knowledge/rag-'):return True
+    if path in {'/api/knowledge/retrieval-settings','/api/knowledge/retrieval-status','/api/knowledge/retrieval-test'} or path.startswith('/api/knowledge/rerank-model'):
+        return True
+    if re.match(r'^/api/knowledge/(skills|agents)(/|$)', path):
+        # Researchers select published methods; lifecycle and trials belong to administration.
+        if method not in {'GET', 'HEAD'} or re.search(r'/(tests|export)(/|$)', path):
+            return True
+    if path.startswith(('/api/admin', '/api/me', '/api/system-library')):
         return True
     if path in {'/api/service/exit', '/api/collation/shutdown', '/api/knowledge/settings',
                 '/api/knowledge/connection-test', '/api/knowledge/document-imports/preview', '/api/knowledge/core/import'}:
@@ -77,18 +86,10 @@ def restricted_workspace_api(path, method):
         return True
     if path.startswith('/api/knowledge/exports'):
         return True
-    if path.startswith('/api/knowledge/migrations') or path.startswith('/api/uploads'):
+    if path.startswith('/api/knowledge/migrations'):
         return True
-    if method not in {'GET', 'HEAD'}:
-        if path == '/api/materials/import' or path == '/api/library' or path.startswith('/api/library/') or re.fullmatch(r'/api/references/[^/]+/(add-to-library|confirm-version)',path):
-            return True
-        suffix = path.removeprefix('/api/knowledge/')
-        if suffix in {'editions','catalog','document-entries/move','literature-memberships'}:
-            return True
-        if suffix.startswith(('document-groups/','document-imports/','literature-categories','catalog/works/','catalog/editions/','reference-candidates/')):
-            return True
-        if re.fullmatch(r'editions/[^/]+(?:/(?:imports|revisions|reindex|pages/[^/]+/[^/]+/label))?', suffix):
-            return True
+    if method not in {'GET','HEAD'} and (path.startswith('/api/submissions/import') or path == '/api/submissions/journals' or re.fullmatch(r'/api/submissions/journals/[^/]+', path)):
+        return True
     return False
 
 
@@ -97,7 +98,7 @@ def create_app(root, ui_dir=None, fleet=None):
     root.mkdir(parents=True, exist_ok=True)
     accounts = Accounts(root / 'private')
     fleet = fleet or WorkspaceFleet(root)
-    upstream = httpx.AsyncClient(timeout=httpx.Timeout(240, connect=5), limits=httpx.Limits(max_connections=100, max_keepalive_connections=20))
+    upstream = httpx.AsyncClient(timeout=httpx.Timeout(240, connect=5), limits=httpx.Limits(max_connections=100, max_keepalive_connections=20), trust_env=False)
     @asynccontextmanager
     async def lifespan(_app):
         # Workspace hosts outlive a portal restart; their workers keep executing.
@@ -105,7 +106,10 @@ def create_app(root, ui_dir=None, fleet=None):
             yield
         finally:
             await upstream.aclose()
+            if hasattr(fleet,'close'):
+                fleet.close()
     application = FastAPI(title='问津 Web 门户', docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    install_handlers(application)
     application.state.accounts = accounts
     application.state.fleet = fleet
 
@@ -255,6 +259,34 @@ def create_app(root, ui_dir=None, fleet=None):
         if any(char in decoded for char in '\\?#%\r\n\x00') or any(part in {'.', '..'} for part in decoded.split('/')):
             raise HTTPException(400, '接口路径无效')
         return decoded
+
+    @application.api_route('/api/admin/journals/{path:path}', methods=['GET','POST','PUT','HEAD'])
+    async def journal_proxy(path: str, request: Request):
+        path = validate_path(path)
+        if not (path in {'overview','english-journals','journals'} or re.fullmatch(r'journals/[a-f0-9]{32}',path)):
+            raise HTTPException(403, '此入口仅用于维护公共期刊目录')
+        try:
+            target = await run_in_threadpool(fleet.ensure_library)
+        except RuntimeError as error:
+            raise HTTPException(503, str(error)) from None
+        if request.method not in {'GET','HEAD'}:
+            with accounts.connection() as db:
+                accounts.audit(db,request.state.user['id'],'journal.request',details={'method':request.method,'path':path})
+        return await forward(request,target,'/api/submissions/'+path,library=True)
+
+    @application.api_route('/api/system-library/{path:path}', methods=['GET', 'HEAD'])
+    async def system_library_proxy(path: str, request: Request):
+        route = '/api/' + validate_path(path)
+        # Only public source metadata/originals are exposed. Jobs, notes, accounts,
+        # settings and all mutations always belong to the user's own workspace.
+        suffix = route.removeprefix('/api/knowledge/')
+        if not (route.startswith('/api/knowledge/') and (suffix in {'health','activation','catalog','editions','document-groups','document-tree','literature-categories'} or suffix.startswith(('editions/','document-entries/','core/')))):
+            raise HTTPException(403, '此入口仅用于读取系统文献')
+        try:
+            target = await run_in_threadpool(fleet.ensure_library)
+        except RuntimeError as error:
+            raise HTTPException(503, str(error)) from None
+        return await forward(request, target, route)
 
     @application.api_route('/api/admin/library/{path:path}', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'])
     async def library_proxy(path: str, request: Request):

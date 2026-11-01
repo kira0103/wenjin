@@ -89,10 +89,10 @@ class PortalNativeTests(unittest.TestCase):
                 self.assertEqual(confirmed.status_code,200,confirmed.text)
                 group=confirmed.json()['group_id']
                 def document():
-                    listing=alice_client.get('/api/knowledge/document-tree',params={'group_id':group}).json()
+                    listing=alice_client.get('/api/system-library/knowledge/document-tree',params={'group_id':group}).json()
                     items=listing.get('files',[])
                     if not items:return None
-                    item=alice_client.get('/api/knowledge/document-entries/'+items[0]['id']).json()
+                    item=alice_client.get('/api/system-library/knowledge/document-entries/'+items[0]['id']).json()
                     return item if item.get('pages') else None
                 entry=until(document,'uploaded document parsing')
                 resource=f"/api/knowledge/editions/{entry['edition_id']}/files/{entry['asset_id']}"
@@ -100,11 +100,42 @@ class PortalNativeTests(unittest.TestCase):
                 self.assertEqual(original.status_code,200,original.text)
                 self.assertEqual(original.content,body)
                 self.assertEqual(bob_client.get(resource).content,body)
-                self.assertEqual(bob_client.get('/api/knowledge/document-entries/'+entry['id']).status_code,200)
-                self.assertEqual(bob_client.get('/api/uploads/'+upload['id']).status_code,403)
-                self.assertEqual(bob_client.post('/api/uploads',json={}).status_code,403)
+                self.assertEqual(bob_client.get('/api/system-library/knowledge/document-entries/'+entry['id']).status_code,200)
+                self.assertEqual(bob_client.get('/api/uploads/'+upload['id']).status_code,404)
+                self.assertEqual(bob_client.post('/api/uploads',json={}).status_code,422)
                 self.assertEqual(bob_client.delete('/api/knowledge/editions/'+entry['edition_id'],params={'confirmation':'甲的文献'}).status_code,403)
                 self.assertEqual(bob_client.get('/api/admin/library/knowledge/catalog').status_code,403)
+                private=alice_client.post('/api/knowledge/catalog',json={'title':'甲的私人文献','item_type':'article'})
+                self.assertEqual(private.status_code,200,private.text)
+                personal=private.json()
+                self.assertEqual(bob_client.get('/api/knowledge/editions/'+personal['id']).status_code,404)
+                self.assertNotIn('甲的私人文献',admin_client.get('/api/admin/library/knowledge/catalog').text)
+                self.assertIn('甲的私人文献',alice_client.get('/api/knowledge/catalog').text)
+                private_bytes='私人原件，与系统原件分开存储'.encode()
+                attached=alice_client.post('/api/knowledge/editions/'+personal['id']+'/imports?filename=private.txt',content=private_bytes,headers={'Content-Type':'application/octet-stream'})
+                self.assertEqual(attached.status_code,200,attached.text)
+                private_file=attached.json()['asset_id']
+                private_url='/api/knowledge/editions/'+personal['id']+'/files/'+private_file
+                self.assertEqual(alice_client.get(private_url).content,private_bytes)
+                self.assertEqual(bob_client.get(private_url).status_code,404)
+                self.assertEqual(admin_client.get('/api/admin/library/knowledge/editions/'+personal['id']).status_code,404)
+                self.assertEqual(admin_client.get('/api/admin/library/knowledge/editions/'+personal['id']+'/delete-preview').status_code,404)
+                # The normal browser/desktop import path also runs privately,
+                # even when the bytes are identical to an existing system file.
+                uploaded=alice_client.post('/api/uploads',json={'files':[{'relative_path':'个人导入.txt','size':len(body)}]}).json()
+                sent=alice_client.put(f"/api/uploads/{uploaded['id']}/files/0?offset=0",content=body)
+                self.assertEqual(sent.status_code,200,sent.text)
+                previewed=alice_client.post(f"/api/uploads/{uploaded['id']}/preview")
+                self.assertEqual(previewed.status_code,200,previewed.text)
+                imported=alice_client.post('/api/knowledge/document-imports/'+previewed.json()['id']+'/start',json={'category_name':'个人分类','item_type':'article'})
+                self.assertEqual(imported.status_code,200,imported.text)
+                def personal_document():
+                    listing=alice_client.get('/api/knowledge/document-tree',params={'group_id':imported.json()['group_id']}).json()
+                    return next((item for item in listing.get('files',[]) if item.get('active_revision')),None)
+                own_entry=until(personal_document,'personal uploaded document parsing')
+                self.assertNotEqual(own_entry['asset_id'],entry['asset_id'])
+                self.assertEqual(bob_client.get('/api/knowledge/document-entries/'+own_entry['id']).status_code,404)
+                self.assertEqual(bob_client.get('/api/uploads/'+uploaded['id']).status_code,404)
                 selected=alice_client.put('/api/knowledge/projects/project-main/sources/'+entry['edition_id'],json={'roles':['reference']})
                 self.assertEqual(selected.status_code,200,selected.text)
                 self.assertTrue(alice_client.get('/api/knowledge/projects/project-main/sources').json())
@@ -113,6 +144,41 @@ class PortalNativeTests(unittest.TestCase):
                 self.assertEqual(note.status_code,200,note.text)
                 self.assertEqual(bob_client.get('/api/knowledge/notes/'+note.json()['id']).status_code,404)
                 self.assertEqual(bob_client.get('/api/knowledge/notes').json(),[])
+                # Published system methods and retrieval policy are common to both
+                # accounts; personal records remain in their existing schemas.
+                config_path='/api/admin/library/knowledge/retrieval-settings'
+                retrieval=admin_client.get(config_path).json()
+                retrieval['options'].update(parent_characters=1666,parent_enabled=False)
+                saved=admin_client.put(config_path,json={key:retrieval[key] for key in ('version','options')})
+                self.assertEqual(saved.status_code,200,saved.text)
+                self.assertEqual(alice_client.get('/api/knowledge/retrieval-settings').status_code,403)
+                for client in (alice_client,bob_client):
+                    found=client.post('/api/knowledge/search',json={'query':'财政','mode':'exact','source_kinds':['document'],
+                        'retrieval':{**retrieval['options'],'parent_characters':4000}})
+                    self.assertEqual(found.status_code,200,found.text)
+                    trace=client.get('/api/knowledge/retrieval-runs/'+found.json()['retrieval_run_id']).json()
+                    self.assertEqual(trace['diagnostics']['retrieval_settings_version'],saved.json()['version'])
+                    self.assertEqual(trace['diagnostics']['retrieval']['parent_characters'],1666)
+                skill_path='/api/admin/library/knowledge/skills'
+                content={'slug':'portal-shared-test','name':'公共测试技能','description':'隔离测试方法','instructions':'保留原文出处','tools':['search','read','list']}
+                skill=admin_client.post(skill_path,json=content)
+                self.assertEqual(skill.status_code,200,skill.text)
+                skill=skill.json()
+                self.assertNotIn(skill['id'],[item['id'] for item in alice_client.get('/api/knowledge/skills').json()])
+                published=admin_client.post(skill_path+'/'+skill['id']+'/publish',json={'edit_version':skill['edit_version']})
+                self.assertEqual(published.status_code,200,published.text)
+                version=published.json()['active_version']
+                for client in (alice_client,bob_client):
+                    shared=next(item for item in client.get('/api/knowledge/skills').json() if item['id']==skill['id'])
+                    self.assertEqual(shared['active_version'],version)
+                    self.assertEqual(shared['draft']['instructions'],'保留原文出处')
+                    self.assertEqual(client.put('/api/knowledge/skills/'+skill['id'],json=content).status_code,403)
+                draft={**content,'instructions':'尚未发布的修订','edit_version':published.json()['edit_version']}
+                self.assertEqual(admin_client.put(skill_path+'/'+skill['id'],json=draft).status_code,200)
+                self.assertEqual(alice_client.get('/api/knowledge/skills/'+skill['id']).json()['draft']['instructions'],'保留原文出处')
+                revoked=admin_client.post(skill_path+'/'+skill['id']+'/versions/'+version+'/revoke',json={})
+                self.assertEqual(revoked.status_code,200,revoked.text)
+                self.assertNotIn(skill['id'],[item['id'] for item in bob_client.get('/api/knowledge/skills').json()])
                 detail=alice_client.get('/api/knowledge/editions/'+entry['edition_id']).json()
                 block=detail['blocks'][0]
                 anchor=alice_client.post('/api/knowledge/anchors',json={'block_id':block['id'],'start':0,'end':3})
@@ -137,9 +203,25 @@ class PortalNativeTests(unittest.TestCase):
                 from sqlalchemy.engine import make_url
                 self.assertEqual(make_url(configs[0]['runtime_url']).database,make_url(configs[1]['runtime_url']).database)
                 with psycopg.connect(native_url(configs[1]['runtime_url']),autocommit=True) as restricted:
-                    with self.assertRaises(psycopg.errors.InsufficientPrivilege):restricted.execute('UPDATE public.kb_works SET title=title')
+                    self.assertEqual(restricted.execute('UPDATE public.kb_works SET title=title').rowcount,0)
                     with self.assertRaises(psycopg.errors.InsufficientPrivilege):restricted.execute('SELECT * FROM '+configs[0]['schema']+'.kb_notes')
                     with self.assertRaises(psycopg.errors.InsufficientPrivilege):restricted.execute('SELECT * FROM public.kb_notes')
+                    for table in ('kb_assistant_definitions','kb_retrieval_settings'):
+                        with self.assertRaises(psycopg.errors.InsufficientPrivilege):restricted.execute('UPDATE public.'+table+' SET workspace_key=workspace_key')
+                    with self.assertRaises(psycopg.errors.InsufficientPrivilege):restricted.execute('UPDATE public.kb_assistant_versions SET revoked=true')
+                    self.assertTrue(restricted.execute('SELECT id FROM public.kb_assistant_versions FOR SHARE').fetchone())
+                    with self.assertRaises(psycopg.errors.RaiseException):restricted.execute('UPDATE public.kb_assistant_versions SET id=gen_random_uuid()')
+                from sqlalchemy import create_engine,text
+                from backend.knowledge import assistant_registry
+                actor=bob_client.get('/api/knowledge/agents').json()[0]
+                engine=create_engine(configs[1]['runtime_url'])
+                try:
+                    with engine.begin() as db:
+                        db.execute(text("SELECT set_config('shixue.workspace',:key,true)"),{'key':configs[1]['library_key']})
+                        profile=assistant_registry.freeze(db,actor['active_version'])
+                        self.assertEqual(profile['agent']['id'],actor['active_version'])
+                        assistant_registry.validate_frozen(db,profile)
+                finally:engine.dispose()
                 self.assertEqual(len(list((root/'shared-library'/'assets'/'knowledge').rglob('*.txt'))),1)
                 self.assertFalse((root/'workspaces'/accounts.get(alice['id'])['workspace_id']/'assets'/'knowledge').exists())
                 library_config=json.loads((application.state.fleet.runtime(application.state.fleet.library)/'shared-database.json').read_text(encoding='utf-8'))

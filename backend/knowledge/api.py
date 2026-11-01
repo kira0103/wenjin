@@ -22,6 +22,8 @@ def register_features(router,root,legacy_connection,completion,model_settings):
         validate_project(payload.scope.project_id)
         validate_project(getattr(payload,'context_project_id',None))
         data=payload.model_dump(mode='json')
+        from .shared import private_schema
+        if private_schema():data['retrieval']=None
         if payload.scope.project_id:
             with legacy_connection() as legacy:
                 from .execution import activated
@@ -222,21 +224,27 @@ def register_features(router,root,legacy_connection,completion,model_settings):
 
     @router.get('/jobs')
     def jobs():
-        with r.database.transaction(root()) as connection:return r.rows(connection,"SELECT * FROM kb_jobs WHERE workspace_key=current_setting('shixue.workspace') ORDER BY created_at DESC LIMIT 100")
+        with r.database.transaction(root()) as connection:return r.rows(connection,"SELECT id,kind,state,stage,progress,result,error,attempts,owner,lease_until,created_at,updated_at,workspace_key,CASE WHEN kind='rag_batch' THEN payload-'targets' ELSE payload END payload FROM kb_jobs WHERE workspace_key=current_setting('shixue.workspace') ORDER BY created_at DESC LIMIT 100")
 
     @router.get('/jobs/{identifier}')
     def job(identifier:UUID):
-        with r.database.transaction(root()) as connection:return r.one(connection,"SELECT * FROM kb_jobs WHERE id=:id AND workspace_key=current_setting('shixue.workspace')",id=identifier)
+        with r.database.transaction(root()) as connection:return r.one(connection,"SELECT id,kind,state,stage,progress,result,error,attempts,owner,lease_until,created_at,updated_at,workspace_key,CASE WHEN kind='rag_batch' THEN payload-'targets' ELSE payload END payload FROM kb_jobs WHERE id=:id AND workspace_key=current_setting('shixue.workspace')",id=identifier)
 
     @router.post('/jobs/{identifier}/retry')
     def retry(identifier:UUID):
         with r.database.transaction(root()) as connection:
-            current=r.one(connection,"SELECT kind FROM kb_jobs WHERE id=:id AND workspace_key=current_setting('shixue.workspace')",id=identifier)
-            from .shared import read_only_library
-            if read_only_library() and current['kind'] in {'import','index','document_batch','document_import','core_import','migration','export'}:
-                raise HTTPException(403,'公共文献处理由管理员维护，旧任务记录继续保留')
+            current=r.one(connection,"SELECT kind,payload FROM kb_jobs WHERE id=:id AND workspace_key=current_setting('shixue.workspace')",id=identifier)
+            from .shared import private_schema
+            if private_schema() and current['kind'] in {'core_import','migration','export','embedding_model'}:
+                raise HTTPException(403,'此任务需要服务器维护入口')
+            if current['kind']=='embedding_model':
+                model=current['payload']['embedding']['model']
+                r.execute(connection,"SELECT pg_advisory_xact_lock(hashtextextended(current_setting('shixue.workspace')||:model,0))",model='embedding:'+model)
+                if r.execute(connection,"SELECT 1 FROM kb_jobs WHERE workspace_key=current_setting('shixue.workspace') AND kind='embedding_model' AND id<>:id AND payload->'embedding'->>'model'=:model AND state IN ('queued','running') LIMIT 1",id=identifier,model=model).scalar():
+                    raise HTTPException(409,'该模型已有下载或校验任务，请查看现有任务')
             if current['kind'] in ('research','collaboration'):raise HTTPException(409,'请在研究助手中使用“重新研究”，以核验最新范围和模型配置')
-            result=r.one(connection,"UPDATE kb_jobs SET state='queued',owner=NULL,error='',progress=0,attempts=0 WHERE id=:id AND workspace_key=current_setting('shixue.workspace') AND state IN ('failed','cancelled') RETURNING *",id=identifier)
+            if current['kind']=='rag_batch':raise HTTPException(409,'请在文献加工中使用全量批次重试入口')
+            result=r.one(connection,"UPDATE kb_jobs SET state='queued',stage='queued',owner=NULL,error='',progress=0,attempts=0,updated_at=now() WHERE id=:id AND workspace_key=current_setting('shixue.workspace') AND state IN ('failed','cancelled') RETURNING *",id=identifier)
         worker.start(root());return result
 
     @router.post('/jobs/{identifier}/cancel')

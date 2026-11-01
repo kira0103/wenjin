@@ -8,7 +8,8 @@ type CatalogEdition = {
   tags: string[]; active_revision: string | null; file_count?: number; index_state?: string;
 };
 
-export default function UnclassifiedCatalog({ onOpen, onEdit }: {
+export default function UnclassifiedCatalog({ onOpen, onEdit, allDocuments=false }: {
+  allDocuments?: boolean;
   onOpen(id: string): void;
   onEdit(edition: CatalogEdition): void;
 }) {
@@ -21,7 +22,7 @@ export default function UnclassifiedCatalog({ onOpen, onEdit }: {
     const ticket = ++generation.current;
     setBusy(true); setError('');
     try {
-      const params = new URLSearchParams({ kind: 'unclassified', query, year, state, limit: '50', ...(next ? { cursor: next } : {}) });
+      const params = new URLSearchParams({ kind: allDocuments?'all':'unclassified', include_core: String(allDocuments), query, year, state, limit: '50', ...(next ? { cursor: next } : {}) });
       const value = await request<{ items: CatalogEdition[]; next_cursor: string | null }>('/api/knowledge/catalog?' + params);
       if (ticket === generation.current) {
         setItems(previous => next ? [...previous, ...value.items] : value.items);
@@ -38,7 +39,7 @@ export default function UnclassifiedCatalog({ onOpen, onEdit }: {
     setBusy(true); setItems([]); setCursor(null);
     const timer = setTimeout(() => void load(), 250);
     return () => { clearTimeout(timer); generation.current++; };
-  }, [query, year, state]);
+  }, [query, year, state, allDocuments]);
 
   return <section>
     <div className="kb-toolbar">
@@ -61,11 +62,11 @@ export default function UnclassifiedCatalog({ onOpen, onEdit }: {
           <small>正文：{edition.active_revision ? '可检索' : '待提取'}</small>
           <small>语义索引：{edition.index_state === 'ready' ? '就绪' : '未就绪'}</small></td>
         <td><button className="button-quiet" onClick={() => onOpen(edition.id)}>阅读</button>
-          <button className="button-quiet" onClick={() => onEdit(edition)}>核对分类</button></td>
+          <button className="button-quiet" onClick={() => onEdit(edition)}>{allDocuments?'编辑书目':'核对分类'}</button></td>
       </tr>)}</tbody>
     </table></div>
-    {!busy && !items.length && <p className="empty-block">没有待归类的历史文献。</p>}
+    {!busy && !items.length && <p className="empty-block">{allDocuments?'没有匹配的文献。':'没有待归类的历史文献。'}</p>}
     {busy && <p role="status">正在读取书目…</p>}
-    {cursor && <button className="button-secondary" disabled={busy} onClick={() => void load(cursor)}>加载更多论文</button>}
+    {cursor && <button className="button-secondary" disabled={busy} onClick={() => void load(cursor)}>加载更多文献</button>}
   </section>;
 }

@@ -203,7 +203,7 @@ function registerApi() {
     if(!trustedSender(event)||!['files','directory'].includes(mode)||workspaceChanging)throw Error('无法选择文献来源');
     const picked=await dialog.showOpenDialog(windowRef,{title:mode==='directory'?'选择文献目录（保留原目录结构）':'选择一个或多个文献文件',
       properties:mode==='directory'?['openDirectory']:['openFile','multiSelections'],
-      ...(mode==='files'?{filters:[{name:'文献',extensions:['pdf','docx','doc','txt','md','png','jpg','jpeg','tif','tiff']}]}:{})});
+      ...(mode==='files'?{filters:[{name:'文献',extensions:['pdf','docx','doc','txt','md','html','htm','csv','pptx','xlsx','png','jpg','jpeg','tif','tiff']}]}:{})});
     if(picked.canceled)return null;
     const config=backendReady||await ready;
     if(remoteMode)return uploadSelection(config,token,mode,picked.filePaths,path.join(app.getPath('userData'),'uploads'));

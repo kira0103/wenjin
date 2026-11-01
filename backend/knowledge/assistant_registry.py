@@ -15,6 +15,7 @@ from pydantic import Field, model_validator
 
 from . import repository as r
 from .schemas import Strict
+from .shared import private_schema
 
 TOOLS={'search','read','list'}
 MAX_PACKAGE=256*1024
@@ -66,13 +67,17 @@ AGENTS=[
 
 
 def row(connection,identifier,kind=None,lock=False):
-    return r.one(connection,"SELECT * FROM kb_assistant_definitions WHERE id=:id AND workspace_key=current_setting('shixue.workspace')"+
+    return r.one(connection,"SELECT * FROM public.kb_assistant_definitions WHERE id=:id AND workspace_key=current_setting('shixue.workspace')"+
                  (' AND kind=:kind' if kind else '')+(' FOR UPDATE' if lock else ''),id=identifier,kind=kind)
 
 
 def release(connection,identifier,kind=None,new_run=True,lock=False):
-    item=r.one(connection,"SELECT v.*,d.workspace_key,d.kind,d.enabled,d.slug,d.id definition_id FROM kb_assistant_versions v "
-               "JOIN kb_assistant_definitions d ON d.id=v.definition_id WHERE v.id=:id AND d.workspace_key=current_setting('shixue.workspace')"+(' FOR SHARE OF v' if lock else ''),id=identifier)
+    # Older private runs retain their frozen methods; only new runs use the system registry.
+    legacy = not new_run and private_schema() and not r.execute(connection,
+        'SELECT 1 FROM public.kb_assistant_versions WHERE id=:id',id=identifier).scalar()
+    prefix = '' if legacy else 'public.'
+    item=r.one(connection,f"SELECT v.*,d.workspace_key,d.kind,d.enabled,d.slug,d.id definition_id FROM {prefix}kb_assistant_versions v "
+               f"JOIN {prefix}kb_assistant_definitions d ON d.id=v.definition_id WHERE v.id=:id AND d.workspace_key=current_setting('shixue.workspace')"+(' FOR SHARE OF v' if lock else ''),id=identifier)
     if kind and item['kind']!=kind:raise HTTPException(400,'版本类型不匹配')
     if item['revoked'] or new_run and not item['enabled']:raise HTTPException(409,'所选角色或技能已停用或撤销，请重新选择')
     if digest(item['content'])!=item['sha256']:raise HTTPException(409,'技能或角色内容校验失败')
@@ -83,7 +88,7 @@ def insert(connection,kind,payload):
     identifier=r.uid();content=payload.model_dump(mode='json',exclude={'edit_version'})
     if kind=='skill' and content['skill_version_ids']:raise HTTPException(400,'技能不能递归绑定其他技能')
     for identifier_ in content['skill_version_ids']:release(connection,identifier_,'skill')
-    r.execute(connection,"INSERT INTO kb_assistant_definitions(id,workspace_key,kind,slug,draft) "
+    r.execute(connection,"INSERT INTO public.kb_assistant_definitions(id,workspace_key,kind,slug,draft) "
               "VALUES(:id,current_setting('shixue.workspace'),:k,:slug,CAST(:draft AS jsonb))",id=identifier,k=kind,slug=payload.slug,draft=r.j(content))
     return identifier
 
@@ -95,31 +100,32 @@ def publish(connection,identifier,expected,activate=True):
     content=payload.model_dump(mode='json',exclude={'edit_version'})
     if item['kind']=='skill' and content['skill_version_ids']:raise HTTPException(400,'技能不能递归绑定其他技能')
     for version_id in content['skill_version_ids']:release(connection,version_id,'skill')
-    current=r.execute(connection,'SELECT max(number) FROM kb_assistant_versions WHERE definition_id=:id',id=identifier).scalar() or 0
+    current=r.execute(connection,'SELECT max(number) FROM public.kb_assistant_versions WHERE definition_id=:id',id=identifier).scalar() or 0
     sha=digest(content)
-    previous=r.execute(connection,'SELECT id FROM kb_assistant_versions WHERE definition_id=:id AND sha256=:h AND NOT revoked ORDER BY number DESC LIMIT 1',id=identifier,h=sha).scalar()
+    previous=r.execute(connection,'SELECT id FROM public.kb_assistant_versions WHERE definition_id=:id AND sha256=:h AND NOT revoked ORDER BY number DESC LIMIT 1',id=identifier,h=sha).scalar()
     version_id=str(previous) if previous else r.uid()
-    if not previous:r.execute(connection,'INSERT INTO kb_assistant_versions(id,definition_id,number,content,sha256) VALUES(:id,:d,:n,CAST(:c AS jsonb),:h)',
+    if not previous:r.execute(connection,'INSERT INTO public.kb_assistant_versions(id,definition_id,number,content,sha256) VALUES(:id,:d,:n,CAST(:c AS jsonb),:h)',
                              id=version_id,d=identifier,n=current+1,c=r.j(content),h=sha)
-    if activate:r.execute(connection,'UPDATE kb_assistant_definitions SET active_version=:v,updated_at=now() WHERE id=:id',id=identifier,v=version_id)
+    if activate:r.execute(connection,'UPDATE public.kb_assistant_definitions SET active_version=:v,updated_at=now() WHERE id=:id',id=identifier,v=version_id)
     return version_id
 
 
 def ensure_defaults(connection):
+    if private_schema():return
     # Same lock for every initializer; only seed an absent identity, never overwrite user edits.
     r.execute(connection,"SELECT pg_advisory_xact_lock(hashtext(current_setting('shixue.workspace')),931)")
     ids={}
     for slug,name,description,instructions in BUILTINS:
-        current=r.execute(connection,"SELECT * FROM kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind='skill' AND slug=:s",s=slug).mappings().first()
+        current=r.execute(connection,"SELECT * FROM public.kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind='skill' AND slug=:s",s=slug).mappings().first()
         if current:ids[slug]=str(current['active_version']) if current['active_version'] else None
         else:
             identifier=insert(connection,'skill',Definition(slug=slug,name=name,description=description,instructions=instructions))
             ids[slug]=publish(connection,identifier,1)
     for slug,name,instructions,skills in AGENTS:
-        exists=r.execute(connection,"SELECT 1 FROM kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind='agent' AND slug=:s",s=slug).scalar()
+        exists=r.execute(connection,"SELECT 1 FROM public.kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind='agent' AND slug=:s",s=slug).scalar()
         if not exists:
             # A disabled built-in skill must not block the management page.
-            bindings=[ids[s] for s in skills if ids.get(s) and r.execute(connection,'SELECT d.enabled AND NOT v.revoked FROM kb_assistant_versions v JOIN kb_assistant_definitions d ON d.id=v.definition_id WHERE v.id=:id',id=ids[s]).scalar()]
+            bindings=[ids[s] for s in skills if ids.get(s) and r.execute(connection,'SELECT d.enabled AND NOT v.revoked FROM public.kb_assistant_versions v JOIN public.kb_assistant_definitions d ON d.id=v.definition_id WHERE v.id=:id',id=ids[s]).scalar()]
             identifier=insert(connection,'agent',Definition(slug=slug,name=name,description=instructions,instructions=instructions,skill_version_ids=bindings))
             publish(connection,identifier,1)
 
@@ -127,16 +133,25 @@ def ensure_defaults(connection):
 def list_definitions(root,kind):
     with r.database.transaction(root) as connection:
         ensure_defaults(connection)
-        return r.rows(connection,"SELECT d.*,v.number active_number FROM kb_assistant_definitions d LEFT JOIN kb_assistant_versions v ON v.id=d.active_version "
+        if private_schema():
+            return r.rows(connection,"SELECT d.id,d.slug,d.enabled,d.active_version,v.number active_number,v.content draft "
+                          "FROM public.kb_assistant_definitions d JOIN public.kb_assistant_versions v ON v.id=d.active_version "
+                          "WHERE d.workspace_key=current_setting('shixue.workspace') AND d.kind=:k AND d.enabled AND NOT v.revoked ORDER BY d.created_at,d.slug",k=kind)
+        return r.rows(connection,"SELECT d.*,v.number active_number FROM public.kb_assistant_definitions d LEFT JOIN public.kb_assistant_versions v ON v.id=d.active_version "
                       "WHERE d.workspace_key=current_setting('shixue.workspace') AND kind=:k ORDER BY d.created_at,d.slug",k=kind)
 
 
 def detail(root,identifier,kind=None):
     with r.database.transaction(root) as connection:
         item=row(connection,identifier,kind)
-        item['versions']=r.rows(connection,'SELECT id,number,sha256,revoked,created_at,content FROM kb_assistant_versions WHERE definition_id=:id ORDER BY number DESC',id=identifier)
-        item['used_by']=r.rows(connection,"SELECT DISTINCT d.id,d.draft->>'name' name FROM kb_assistant_definitions d JOIN kb_assistant_versions v ON v.definition_id=d.id "
-                     "WHERE d.workspace_key=current_setting('shixue.workspace') AND d.kind='agent' AND EXISTS (SELECT 1 FROM kb_assistant_versions s "
+        if private_schema():
+            if not item['enabled'] or not item['active_version']:raise HTTPException(404,'此配置尚未发布或已停用')
+            version=release(connection,item['active_version'])
+            return {'id':item['id'],'slug':item['slug'],'enabled':True,'active_version':item['active_version'],
+                    'active_number':version['number'],'draft':version['content']}
+        item['versions']=r.rows(connection,'SELECT id,number,sha256,revoked,created_at,content FROM public.kb_assistant_versions WHERE definition_id=:id ORDER BY number DESC',id=identifier)
+        item['used_by']=r.rows(connection,"SELECT DISTINCT d.id,d.draft->>'name' name FROM public.kb_assistant_definitions d JOIN public.kb_assistant_versions v ON v.definition_id=d.id "
+                     "WHERE d.workspace_key=current_setting('shixue.workspace') AND d.kind='agent' AND EXISTS (SELECT 1 FROM public.kb_assistant_versions s "
                      "WHERE s.definition_id=:id AND v.content->'skill_version_ids' @> jsonb_build_array(s.id::text))",id=identifier)
         return item
 

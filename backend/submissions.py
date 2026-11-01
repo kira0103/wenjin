@@ -5,9 +5,12 @@ import csv
 import hashlib
 import io
 import json
+import os
 import re
+import sqlite3
 import unicodedata
 import uuid
+from contextlib import closing
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -97,6 +100,9 @@ def migrate(db, seed=True):
       );
       CREATE INDEX IF NOT EXISTS submission_attempt_paper ON submission_attempts(paper_id,created_at);
       CREATE INDEX IF NOT EXISTS submission_event_paper ON submission_events(paper_id,created_at);
+      CREATE TABLE IF NOT EXISTS submission_public_links (
+        public_id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES submission_journals(id)
+      );
     ''')
     if seed and SEED.is_file():
         content = SEED.read_text(encoding='utf-8-sig')
@@ -306,12 +312,58 @@ def paper_detail(db, identity):
     return paper
 
 
+def public_catalog(db):
+    """Overlay central metadata on private preferences without changing historical IDs."""
+    root = os.environ.get('SHIXUE_LIBRARY_ROOT')
+    if not root:
+        return None
+    if not db.in_transaction:
+        db.execute('BEGIN IMMEDIATE')
+    source = (Path(root) / 'library.sqlite').resolve()
+    with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as shared:
+        shared.row_factory = sqlite3.Row
+        shared.execute('BEGIN')
+        journals = [dict(row) for row in shared.execute('SELECT * FROM submission_journals ORDER BY name')]
+        datasets = [dict(row) for row in shared.execute('SELECT * FROM submission_datasets ORDER BY created_at DESC')]
+        aliases = catalog_names(shared)
+    names = catalog_names(db)
+    links = dict(db.execute('SELECT public_id,journal_id FROM submission_public_links'))
+    local = {row['id']:dict(row) for row in db.execute('SELECT * FROM submission_journals')}
+    public_names = {}
+    for name, identities in aliases.items():
+        for identity in identities:
+            public_names.setdefault(identity, set()).add(name)
+    result = []
+    claimed = set(links.values())
+    for item in journals:
+        identifier = links.get(item['id'])
+        if not identifier:
+            candidates = set().union(*(names.get(name,set()) for name in public_names.get(item['id'], {item['name_key']})))
+            candidates -= claimed
+            identifier = next(iter(candidates)) if len(candidates)==1 else item['id']
+            if identifier not in local:
+                db.execute('INSERT INTO submission_journals VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                           (identifier,item['name'],'public:'+item['id'],item['discipline'],item['level'],item['website'],item['submission_url'],'',0,1,now(),now()))
+                local[identifier] = dict(required(db,'submission_journals',identifier))
+            db.execute('INSERT INTO submission_public_links VALUES(?,?)',(item['id'],identifier))
+            claimed.add(identifier)
+        preference = local[identifier]
+        result.append({**item, 'id':identifier, 'favorite':preference['favorite'],
+                       'notes':preference['notes'], 'revision':preference['revision'], 'public_notes':item['notes']})
+    # Keep historical private paper targets readable without publishing them.
+    visible = {item['id'] for item in result}
+    historical = {row[0] for row in db.execute('SELECT target_journal_id FROM submission_papers UNION SELECT journal_id FROM submission_attempts')}
+    result.extend({**local[key], 'personal_legacy':True} for key in historical-visible if key in local)
+    return {'journals':result, 'datasets':datasets}
+
+
 def register(app, connection):
     @app.get('/api/submissions/overview')
     def overview():
         with connection() as db:
-            journals = [dict(r) for r in db.execute('SELECT * FROM submission_journals ORDER BY name')]
-            datasets = [dict(r) for r in db.execute('SELECT * FROM submission_datasets ORDER BY created_at DESC')]
+            catalog = public_catalog(db)
+            journals = catalog['journals'] if catalog else [dict(r) for r in db.execute('SELECT * FROM submission_journals ORDER BY name')]
+            datasets = catalog['datasets'] if catalog else [dict(r) for r in db.execute('SELECT * FROM submission_datasets ORDER BY created_at DESC')]
             papers = [dict(r) for r in db.execute('''SELECT p.*, a.journal_name current_journal_name,
                       (SELECT json_group_array(journal_id) FROM submission_attempts WHERE paper_id=p.id) journal_ids,
                       a.submitted_date, a.last_date, a.round FROM submission_papers p LEFT JOIN submission_attempts a
@@ -319,7 +371,21 @@ def register(app, connection):
                       ORDER BY p.updated_at DESC''')]
             for paper in papers:
                 paper['journal_ids'] = json.loads(paper['journal_ids'])
-            return {'journals': journals, 'papers': papers, 'datasets': datasets}
+            return {'journals': journals, 'papers': papers, 'datasets': datasets, 'public_catalog': bool(catalog)}
+
+    @app.patch('/api/submissions/journals/{identity}/preferences')
+    def preferences(identity: str, body: dict):
+        if set(body)-{'favorite','notes','revision'} or not isinstance(body.get('favorite'),bool):
+            raise HTTPException(422,'请填写收藏状态')
+        with connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            old=required(db,'submission_journals',identity)
+            check_revision(old,body.get('revision'))
+            notes=body.get('notes',old['notes'])
+            if not isinstance(notes,str) or len(notes)>12000:raise HTTPException(422,'备注过长')
+            db.execute('UPDATE submission_journals SET favorite=?,notes=?,revision=revision+1,updated_at=? WHERE id=?',
+                       (int(body['favorite']),notes,now(),identity))
+            return dict(required(db,'submission_journals',identity))
 
     @app.get('/api/submissions/journals/{identity}')
     def journal_detail(identity: str):
@@ -331,9 +397,10 @@ def register(app, connection):
 
     @app.post('/api/submissions/journals')
     def create_journal(body: JournalBody):
+        if os.environ.get('SHIXUE_LIBRARY_ROOT'):raise HTTPException(403,'公共期刊目录由管理员维护')
         with connection() as db:
             db.execute('BEGIN IMMEDIATE')
-            if db.execute('SELECT 1 FROM submission_journals WHERE name_key=?', (name_key(body.name),)).fetchone():
+            if name_key(body.name) in catalog_names(db):
                 raise HTTPException(409, '同名期刊已存在，请编辑已有卡片')
             identity, timestamp = uid(), now()
             db.execute('''INSERT INTO submission_journals VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
@@ -343,11 +410,12 @@ def register(app, connection):
 
     @app.put('/api/submissions/journals/{identity}')
     def edit_journal(identity: str, body: JournalBody):
+        if os.environ.get('SHIXUE_LIBRARY_ROOT'):raise HTTPException(403,'公共期刊目录由管理员维护')
         with connection() as db:
             db.execute('BEGIN IMMEDIATE')
             old = required(db, 'submission_journals', identity)
             check_revision(old, body.revision)
-            collision = db.execute('SELECT id FROM submission_journals WHERE name_key=? AND id!=?', (name_key(body.name), identity)).fetchone()
+            collision = catalog_names(db).get(name_key(body.name),set()) - {identity}
             if collision:
                 raise HTTPException(409, '同名期刊已存在，请使用不同名称')
             db.execute('''UPDATE submission_journals SET name=?,name_key=?,discipline=?,level=?,website=?,submission_url=?,
@@ -358,11 +426,13 @@ def register(app, connection):
 
     @app.post('/api/submissions/import/preview')
     def import_preview(body: ImportRequest):
+        if os.environ.get('SHIXUE_LIBRARY_ROOT'):raise HTTPException(403,'公共期刊目录由管理员维护')
         with connection() as db:
             return preview(db, body)
 
     @app.post('/api/submissions/import')
     def import_confirm(body: ImportRequest):
+        if os.environ.get('SHIXUE_LIBRARY_ROOT'):raise HTTPException(403,'公共期刊目录由管理员维护')
         if body.fingerprint is None:
             raise HTTPException(422, '请先预览目录')
         with connection() as db:
@@ -425,7 +495,10 @@ def register(app, connection):
             if attempt and day < attempt['last_date']:
                 raise HTTPException(422, '日期不能早于上一条投稿或审稿记录')
             if body.action == 'submit':
-                journal = required(db, 'submission_journals', body.journal_id or old['target_journal_id'])
+                catalog = public_catalog(db)
+                journal_id = body.journal_id or old['target_journal_id']
+                journal = next((item for item in catalog['journals'] if item['id']==journal_id),None) if catalog else None
+                journal = journal or required(db, 'submission_journals', journal_id)
                 attempt_id = uid()
                 db.execute('INSERT INTO submission_attempts VALUES(?,?,?,?,?,?,?,?,?)',
                            (attempt_id, identity, journal['id'], journal['name'], day, 'review', 1, day, now()))

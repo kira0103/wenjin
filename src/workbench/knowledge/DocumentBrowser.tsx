@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Folder, FileText, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { Folder, FileText, ChevronRight, MoreHorizontal, Library, Search, Upload } from 'lucide-react';
 import { request } from '../api';
 import { Modal } from '../Pages';
 import { directoryParams, directoryScope, type DirectoryLocation, type DocumentGroups, type DirectoryResult, type DocumentEntry, type LibraryScope } from './documentTypes';
@@ -15,7 +15,8 @@ export default function DocumentBrowser({location,onLocation,onOpen,onUse,onImpo
   const [editing,setEditing]=useState<{action:'rename'|'delete'|'move';name:string;scope?:LibraryScope;label?:string}|null>(null);
   const generation=useRef(0),menu=useRef<HTMLDetailsElement>(null);
   const group=groups?.items.find(g=>g.id===location.group),name=location.group==='uncategorized'?'未分类':group?.name||'全部文献';
-  const overview=!location.group&&!query;
+  const overview=!location.group&&!query&&kind==='all';
+  const collections=groups?[...(groups.uncategorized?[{id:'uncategorized',name:'未分类',files:groups.uncategorized}]:[]),...groups.items]:[];
   async function load(offset=0,quiet=false) {
     const ticket=++generation.current;if(!quiet)setLoading(true);
     try {
@@ -40,23 +41,25 @@ export default function DocumentBrowser({location,onLocation,onOpen,onUse,onImpo
     setEditing(null);setChosen([]);await load();
   }catch(e){setError(e instanceof Error?e.message:'操作失败');}finally{setBusy(false);}}
   return <div className="kb-file-layout">
-    <aside className="kb-file-groups" aria-label="导入分类"><h2>分类</h2>
-      <button className={!location.group?'is-selected':''} onClick={()=>chooseGroup('')}><Folder size={16}/>全部分类<span>{groups?.total??'…'}</span></button>
-      <button className={location.group==='uncategorized'?'is-selected':''} onClick={()=>chooseGroup('uncategorized')}><Folder size={16}/>未分类<span>{groups?.uncategorized??'…'}</span></button>
+    <aside className="kb-file-groups" aria-label="导入分类"><h2>文献分类</h2>
+      <button className={!location.group?'is-selected':''} onClick={()=>chooseGroup('')}><Library size={16}/>全部分类<span>{groups?.total.toLocaleString()??'…'}</span></button>
+      <button className={location.group==='uncategorized'?'is-selected':''} onClick={()=>chooseGroup('uncategorized')}><Folder size={16}/>未分类<span>{groups?.uncategorized.toLocaleString()??'…'}</span></button>
       {groups?.items.map(g=><button key={g.id} className={location.group===g.id?'is-selected':''} onClick={()=>chooseGroup(g.id)}><Folder size={16}/><strong>{g.name}</strong><span>{g.files}</span></button>)}
     </aside>
     <section className="kb-file-content" aria-label="原始目录">
       <div className="kb-file-heading"><nav className="kb-file-breadcrumb" aria-label="文献路径"><button className="button-quiet" onClick={()=>chooseGroup('')}>文献库</button>
         {location.group&&<><ChevronRight size={14}/><button className="button-quiet" onClick={()=>onLocation({...location,path:''})}>{name}</button></>}
         {location.path.split('/').filter(Boolean).map((p,i,a)=><span key={i}><ChevronRight size={14}/><button className="button-quiet" onClick={()=>onLocation({...location,path:a.slice(0,i+1).join('/')})}>{p}</button></span>)}
-      </nav>{location.group&&!readOnly&&<details ref={menu} className="kb-directory-menu"><summary aria-label="分类与目录管理" title="分类与目录管理"><MoreHorizontal size={19}/></summary><div className="kb-directory-menu-items">
+      </nav>{group&&!readOnly&&<button type="button" className="button-secondary kb-edit-group" onClick={()=>edit({action:'rename',name:group.name})}>编辑分类名称</button>}{location.group&&!readOnly&&<details ref={menu} className="kb-directory-menu"><summary aria-label="分类与目录管理" title="分类与目录管理"><MoreHorizontal size={19}/></summary><div className="kb-directory-menu-items">
         <button onClick={()=>{if(menu.current)menu.current.open=false;onImport(name);}}>导入到此分类</button>
         <button onClick={()=>move(directoryScope(location),location.path||name)}>修改{location.path?'目录':'整类文献'}分类</button>
         {group&&<><button onClick={()=>edit({action:'rename',name:group.name})}>重命名分类</button><button onClick={()=>edit({action:'delete',name:group.name})}>删除分类</button></>}
       </div></details>}</div>
-      <div className="kb-directory-search"><input aria-label="目录文献搜索" placeholder="搜索文件名、路径或文献题名" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="目录文献类型" value={kind} onChange={e=>setKind(e.target.value)}><option value="all">全部类型</option><option value="ancient">古籍</option><option value="papers">论文</option></select></div>
+      <div className="kb-directory-search"><div className="kb-directory-search-field"><Search size={17}/><input aria-label="目录文献搜索" placeholder="搜索文件名、路径或文献题名" value={query} onChange={e=>setQuery(e.target.value)}/></div><select aria-label="目录文献类型" value={kind} onChange={e=>setKind(e.target.value)}><option value="all">全部类型</option><option value="ancient">古籍</option><option value="papers">论文</option></select></div>
       {error&&!editing&&<p role="alert" className="persistent-error">{error}<button className="button-quiet" onClick={()=>void load()}>重试</button></p>}
-      {overview?groups?<div className="kb-group-cards">{[{id:'uncategorized',name:'未分类',files:groups.uncategorized},...groups.items].map(g=><button key={g.id} className="kb-group-card" onClick={()=>chooseGroup(g.id)}><Folder size={24}/><strong>{g.name}</strong><span>{g.files.toLocaleString()} 个文件</span></button>)}</div>:<p role="status">正在读取分类…</p>:<>
+      {overview?groups?<><div className="kb-directory-summary"><h3>按分类浏览</h3><p>{groups.documents!==undefined&&<><strong>{groups.documents.toLocaleString()}</strong> 部文献<span>·</span></>}<strong>{groups.total.toLocaleString()}</strong> 个文件</p></div>
+        {collections.length?<div className="kb-group-cards">{collections.map(g=><button key={g.id} className="kb-group-card" onClick={()=>chooseGroup(g.id)}><span className="kb-collection-icon"><Folder size={21}/></span><span className="kb-collection-label"><strong>{g.name==='daizhige'?'殆知阁 · daizhige':g.name}</strong><span>{g.files.toLocaleString()} 个文件</span></span><ChevronRight size={17}/></button>)}</div>:<div className="kb-directory-empty"><span className="kb-collection-icon"><Library size={24}/></span><h3>开始整理文献</h3><p>{readOnly?'系统文献发布后，会在这里显示。':'导入文件或整个目录，保留原件和目录结构。'}</p>{!readOnly&&<button className="button-primary" onClick={()=>onImport('')}><Upload size={16}/>导入第一份文献</button>}</div>}
+      </>:<p role="status">正在读取分类…</p>:<>
         {!readOnly&&!!chosen.length&&<div className="kb-file-selection"><span>已选 {chosen.length} 个文件</span><button className="button-secondary" onClick={()=>move({document_entry_ids:chosen},`${chosen.length} 个文件`)}>修改分类</button><button className="button-quiet" onClick={()=>setChosen([])}>取消选择</button></div>}
         <div className="kb-directory-list">{result?.directories.map(d=><button className="kb-directory-row" key={d.path} onClick={()=>{setQuery('');onLocation({...location,path:d.path});}}><Folder size={20}/><strong>{d.name}</strong><span>{d.files.toLocaleString()} 个文件</span><ChevronRight size={16}/></button>)}</div>
         {!!result?.files.length&&<div className="kb-file-table"><table><colgroup><col className="kb-select-column"/><col/><col className="kb-type-column"/><col className="kb-actions-column"/></colgroup><thead><tr>

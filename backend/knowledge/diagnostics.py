@@ -3,7 +3,7 @@ from time import perf_counter
 
 from . import repository as r
 
-PIPELINE = 'rrf-rerank-parent-spans-v3'
+PIPELINE = 'weighted-rrf-rerank-parent-spans-v4'
 
 
 class Trace:
@@ -20,9 +20,9 @@ class Trace:
 
     def save(self,root,results,outcome='completed'):
         self.data.update(outcome=outcome,elapsed_ms=round((perf_counter()-self.started)*1000,2))
-        fields=('id','block_id','edition_id','revision_id','index_id','asset_id','page_index',
+        fields=('id','block_id','edition_id','revision_id','index_id','asset_id','page_index','semantic_score',
                 'start_offset','end_offset','score','rerank_score','rrf_rank','source_kind','rank','channels')
-        compact=[{key:item[key] if key in {'score','rerank_score','rrf_rank','page_index','start_offset','end_offset','rank','channels'}
+        compact=[{key:item[key] if key in {'score','semantic_score','rerank_score','rrf_rank','page_index','start_offset','end_offset','rank','channels'}
                   else str(item[key]) for key in fields if key in item} for item in results]
         with r.database.transaction(root) as connection:
             r.execute(connection,'INSERT INTO kb_retrieval_runs(id,workspace_key,query,mode,payload,snapshot,diagnostics,results) '
@@ -31,11 +31,14 @@ class Trace:
                       s=r.j(self.snapshot),d=r.j(self.data),r=r.j(compact))
 
 
-def fusion(channels):
+def fusion(channels,semantic_weight=None):
     """A source block contributes once per channel, regardless of chunk count."""
     merged={}
     raw=0
+    lexical=sum(bool(items) for name,items in channels if name!='semantic')
     for name,items in channels:
+        weight=1 if semantic_weight is None else semantic_weight if name=='semantic' else (1-semantic_weight)/max(1,lexical)
+        if weight==0:continue
         seen=set()
         for rank,item in enumerate(items,1):
             raw+=1
@@ -44,8 +47,9 @@ def fusion(channels):
             seen.add(key)
             block_rank=len(seen)
             if key not in merged:merged[key]={**item,'score':0,'source_kind':'document','channels':[]}
-            merged[key]['score']+=1/(60+block_rank)
-            merged[key]['channels'].append({'name':name,'rank':block_rank,'chunk_rank':rank})
+            merged[key]['score']+=weight/(60+block_rank)
+            if 'semantic_score' in item:merged[key]['semantic_score']=item['semantic_score']
+            merged[key]['channels'].append({'name':name,'rank':block_rank,'chunk_rank':rank,'weight':weight})
     results=sorted(merged.values(),key=lambda item:(-item['score'],str(item['block_id'])))
     for rank,item in enumerate(results,1):item['rank']=rank
     return results,raw-len(results)

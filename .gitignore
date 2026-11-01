@@ -80,3 +80,8 @@ worker-status.json
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Local agent experiments, model benchmarks and design audit outputs
+/.dsh/
+/.uiux-audit/
+/scratch/

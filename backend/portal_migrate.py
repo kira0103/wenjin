@@ -27,7 +27,7 @@ from .knowledge.shared import SHARED_TABLES
 
 
 def publish_legacy(source_url, library, private, source_root):
-    """Copy one stopped kb0012 library, then validate every restored FK."""
+    """Copy one stopped legacy library, then validate FKs and source ownership."""
     source_root = Path(source_root).resolve()
     destination = Path(library['root']).resolve()
     schema = private['schema']
@@ -48,6 +48,9 @@ def publish_legacy(source_url, library, private, source_root):
         if new.execute(sql.SQL('SELECT 1 FROM {}.kb_catalog_activation LIMIT 1').format(sql.Identifier(schema))).fetchone():
             raise RuntimeError('目标个人分区已有数据，不能覆盖')
         tables = [row[0] for row in old.execute("SELECT tablename FROM pg_tables WHERE schemaname='public' AND starts_with(tablename,'kb_') AND tablename<>'kb_schema_version' ORDER BY tablename")]
+        for table in sorted(SHARED_TABLES-{'kb_schema_version'}):
+            if old.execute(sql.SQL('SELECT 1 FROM public.{} WHERE owner_role IS NOT NULL LIMIT 1').format(sql.Identifier(table))).fetchone():
+                raise RuntimeError('此库已包含新版个人文献，请按个人文献迁移流程处理，不能整库公开')
         # Copy originals before publishing DB rows. Any failed copy leaves the old
         # account intact and only unreferenced content-addressed files in the new root.
         for key,digest in old.execute("SELECT storage_key,sha256 FROM kb_assets WHERE availability='present'"):
@@ -75,8 +78,14 @@ def publish_legacy(source_url, library, private, source_root):
                 finally:
                     temporary.unlink(missing_ok=True)
         constraints=[]
+        ownership_triggers=[]
         for table in tables:
             namespace = 'public' if table in SHARED_TABLES else schema
+            if new.execute("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass(%s) AND tgname='kb_ownership'",(namespace+'.'+table,)).fetchone():
+                # Like the cyclic FKs below, ownership is validated after the
+                # complete graph is loaded. This DDL rolls back on any failure.
+                new.execute(sql.SQL('ALTER TABLE {}.{} DISABLE TRIGGER kb_ownership').format(sql.Identifier(namespace),sql.Identifier(table)))
+                ownership_triggers.append((namespace,table))
             for name,definition in new.execute("SELECT conname,pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid=to_regclass(%s) AND contype='f'", (namespace+'.'+table,)).fetchall():
                 constraints.append((namespace,table,name,definition))
                 new.execute(sql.SQL('ALTER TABLE {}.{} DROP CONSTRAINT {}').format(sql.Identifier(namespace),sql.Identifier(table),sql.Identifier(name)))
@@ -94,6 +103,10 @@ def publish_legacy(source_url, library, private, source_root):
         # ADD validates all existing rows, including cyclic revision/assistant FKs.
         for namespace,table,name,definition in constraints:
             new.execute(sql.SQL('ALTER TABLE {}.{} ADD CONSTRAINT {} ').format(sql.Identifier(namespace),sql.Identifier(table),sql.Identifier(name)) + sql.SQL(definition))
+        for namespace,table in ownership_triggers:
+            if new.execute(sql.SQL('SELECT 1 FROM {}.{} WHERE owner_role IS NOT NULL LIMIT 1').format(sql.Identifier(namespace),sql.Identifier(table))).fetchone():
+                raise RuntimeError('公开文献归属校验失败，迁移未发布')
+            new.execute(sql.SQL('ALTER TABLE {}.{} ENABLE TRIGGER kb_ownership').format(sql.Identifier(namespace),sql.Identifier(table)))
         new.execute(sql.SQL('CREATE TABLE {}.wj_legacy_publication (source_identity text NOT NULL, published_at timestamptz NOT NULL DEFAULT now())').format(sql.Identifier(schema)))
         new.execute(sql.SQL('INSERT INTO {}.wj_legacy_publication(source_identity) VALUES (%s)').format(sql.Identifier(schema)),(workspace_key(source_root),))
 

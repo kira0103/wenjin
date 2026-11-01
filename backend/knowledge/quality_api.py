@@ -4,13 +4,50 @@ from uuid import UUID
 from fastapi import HTTPException,Query
 
 from . import repository as r
-from .schemas import EvalSuite,EvalCase,ChunkPreview,Reindex,RetrievalSettings
+from .schemas import EvalSuite,EvalCase,ChunkPreview,Reindex,RetrievalSettings,Search
 from .chunking import preview,configured_spans,stored_config,IDENTITY
 from .evaluation import suite,add_case,queue_run
 from .worker import worker
 
 
 def register(router,root,resolve_scope):
+    from .pipeline_api import register as register_pipeline
+    register_pipeline(router,root)
+    from .embedding_api import register as register_embedding
+    register_embedding(router,root)
+    def require_configuration_host():
+        from .shared import private_schema
+        if private_schema():raise HTTPException(403,'知识库配置与检索测试由管理员管理')
+
+    @router.get('/retrieval-status')
+    def retrieval_status():
+        require_configuration_host()
+        from . import models,reranking
+        with r.database.transaction(root()) as connection:
+            counts=r.one(connection,"SELECT count(*) documents,count(*) FILTER(WHERE e.active_index IS NOT NULL AND i.state='ready' AND i.model_key IS NOT NULL) vector_ready, "
+                         "count(*) FILTER(WHERE i.state='failed') index_failed FROM kb_editions e LEFT JOIN kb_indexes i ON i.id=e.active_index WHERE NOT e.deleted")
+            chunks=r.execute(connection,'SELECT count(*) FROM kb_chunks c JOIN kb_editions e ON e.active_index=c.index_id WHERE NOT e.deleted').scalar_one()
+            jobs=r.rows(connection,"SELECT id,state,stage,progress,error FROM kb_jobs WHERE kind='rerank_model' AND workspace_key=current_setting('shixue.workspace') ORDER BY created_at DESC LIMIT 1")
+            from .embedding_api import status as embedding_status
+            embedding=embedding_status(root(),connection)
+        return {'embedding':embedding,'reranker':reranking.status(root()),
+                'index':{**counts,'chunks':chunks},'preparation_job':jobs[0] if jobs else None}
+
+    @router.post('/retrieval-test')
+    def retrieval_test(payload:Search):
+        require_configuration_host()
+        if payload.source_kinds!=['document'] or payload.scope.project_id or payload.scope.library_visibility=='personal':
+            raise HTTPException(400,'后台检索测试仅使用系统文献')
+        from .retrieval import search
+        data=resolve_scope(payload)
+        data['scope'].update(library_visibility='system',include_core=True)
+        found=search(root(),data)
+        fields=('block_id','edition_id','title','label','asset_id','page_index','section_path','score','semantic_score','rerank_score','rank','channels')
+        return {**{key:found[key] for key in ('warnings','mode','retrieval','retrieval_run_id','diagnostics')},
+                'configuration_source':'draft' if payload.retrieval else 'saved',
+                'results':[{**{key:item[key] for key in fields if key in item},'body':item['body'][:2000],
+                            'context_characters':item.get('parent_context',{}).get('characters',0)} for item in found['results']]}
+
     @router.get('/retrieval-settings')
     def retrieval_config():
         from . import retrieval_settings,reranking
@@ -43,7 +80,7 @@ def register(router,root,resolve_scope):
 
     @router.post('/chunk-preview')
     def text_preview(payload:ChunkPreview):
-        return preview(payload.text,payload.config.model_dump())
+        return preview(payload.text,payload.config.model_dump(),root())
 
     @router.post('/editions/{identifier}/chunk-preview')
     def document_preview(identifier:UUID,payload:Reindex):
@@ -54,16 +91,15 @@ def register(router,root,resolve_scope):
                 raise HTTPException(409,'原文已更新，请重新读取后预览')
             previous=r.execute(connection,'SELECT config FROM kb_indexes WHERE id=:id',id=current['active_index']).scalar()
             config=payload.config.model_dump() if payload.config else stored_config(previous)
-            blocks=r.rows(connection,'SELECT id,body,page_index,kind,section_path FROM kb_blocks WHERE revision_id=:r ORDER BY ordinal',r=current['active_revision'])
-            items=[];count=0
-            for block in blocks:
-                for start,end,body in configured_spans(block['body'],config):
-                    count+=1
-                    if len(items)<200:items.append({'block_id':str(block['id']),'page_index':block['page_index'],
-                                                  'kind':block['kind'],'section_path':block['section_path'],'start':start,'end':end,'body':body})
-            return {'revision_id':str(current['active_revision']),'config':{**config,'chunker':IDENTITY},
-                    'chunks':items,'total':count,'truncated':count>len(items),
-                    'warnings':['预览保持各原文段落及字符范围；不自动识别竖排、双栏或复杂表格。字符预算不是模型 token 预算。']}
+            blocks=r.rows(connection,'SELECT id,asset_id,ordinal,body,page_index,kind,section_path,quality FROM kb_blocks WHERE revision_id=:r ORDER BY ordinal',r=current['active_revision'])
+        from .adaptive_chunking import plan_blocks
+        from .models import embed_cached
+        plan=plan_blocks(blocks,config,embedder=lambda texts:embed_cached(root(),texts),metadata=current)
+        items=[{'block_id':str(i['block']['id']),'page_index':i['block']['page_index'],'kind':i['block']['kind'],
+                'section_path':i['block']['section_path'],'start':i['start'],'end':i['end'],'body':i['body']} for i in plan['items'][:200]]
+        return {'revision_id':str(current['active_revision']),'config':{**config,'chunker':IDENTITY},'analysis':plan['analysis'],
+                'chunks':items,'total':len(plan['items']),'truncated':len(plan['items'])>len(items),
+                'warnings':plan['analysis']['warnings']+['预览保持原文字符范围；OCR、双栏及复杂表格仍需核对。字符预算不是模型 token 预算。']}
 
     @router.get('/evaluation/suites')
     def suites():

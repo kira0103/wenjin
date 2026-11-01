@@ -5,8 +5,9 @@ from pathlib import Path
 from fastapi import HTTPException
 from . import repository as r
 from .document_library import DocumentLibrary,relative_path
+from .shared import private_schema
 
-EXTENSIONS={'.pdf','.docx','.doc','.txt','.md','.png','.jpg','.jpeg','.tif','.tiff'}
+EXTENSIONS={'.pdf','.docx','.doc','.txt','.md','.png','.jpg','.jpeg','.tif','.tiff','.html','.htm','.csv','.pptx','.xlsx'}
 MAX_FILE=250*1024*1024
 
 
@@ -63,7 +64,7 @@ class DocumentImports:
             if folder:
                 existing=next((c for c in r.rows(db,'SELECT id,source_path,slug FROM kb_corpora') if Path(c['source_path']).resolve()==folder),None)
             from .core_corpus import CATEGORIES
-            core_layout=bool(folder and any((folder/c).is_dir() for c in CATEGORIES) and any(i['relative_path'].split('/')[0] in CATEGORIES and i['path'].endswith('.md') for i in items))
+            core_layout=bool(not private_schema() and folder and any((folder/c).is_dir() for c in CATEGORIES) and any(i['relative_path'].split('/')[0] in CATEGORIES and i['path'].endswith('.md') for i in items))
             if core_layout or existing:
                 originals=[i for i in items if i['relative_path'].split('/')[0] in CATEGORIES and i['path'].lower().endswith('.md')]
                 ignored+=len(items)-len(originals);items=originals;size=sum(i['size'] for i in items)
@@ -72,7 +73,7 @@ class DocumentImports:
             identifier=r.uid()
             r.execute(db,"INSERT INTO kb_document_imports(id,workspace_key,selection,manifest) VALUES(:id,current_setting('shixue.workspace'),CAST(:selection AS jsonb),CAST(:manifest AS jsonb))",id=identifier,selection=r.j(selection),manifest=r.j(items))
         return {'id':identifier,'mode':mode,'source_label':selection['label'],'files':len(items),'bytes':size,'ignored':ignored,
-                'reuse_existing':bool(existing),'preview':[{'relative_path':i['relative_path'],'size':i['size']} for i in items[:100]]}
+                'reuse_existing':bool(existing),'core_layout':bool(core_layout or existing),'preview':[{'relative_path':i['relative_path'],'size':i['size']} for i in items[:100]]}
 
     def get(self,identifier):
         with r.database.transaction(self.root) as db:
@@ -80,7 +81,7 @@ class DocumentImports:
         return {'id':item['id'],'state':item['state'],'group_id':item['group_id'],'job_id':item['job_id'],'result':item['result'],
                 'files':len(item['manifest']),'failures':[{'relative_path':i['relative_path'],'error':i.get('error','')} for i in item['manifest'] if i['state']=='failed'][:100]}
 
-    def start(self,identifier,category_name,item_type,retry=False):
+    def start(self,identifier,category_name,item_type,retry=False,processing=None,document_strategies=None):
         library=DocumentLibrary(self.root)
         with r.database.transaction(self.root) as db:
             library.state(db)
@@ -89,7 +90,17 @@ class DocumentImports:
             if batch['state']!='preview' and not retry:raise HTTPException(409,'请通过重试入口继续未完成导入')
             if retry and batch['state'] not in ('partial','failed','cancelled'):raise HTTPException(409,'此批次没有需要重试的导入')
             group=batch['group_id'] if retry else library.group(db,category_name)
-            job=r.queue(db,'document_batch',{'batch_id':str(identifier)})
+            from .retrieval_settings import read
+            policy=read(self.root,db)
+            if retry:
+                prior=r.one(db,'SELECT payload FROM kb_jobs WHERE id=:id',id=batch['job_id'])['payload']
+                processing=prior.get('processing');document_strategies=prior.get('document_strategies',{})
+            else:
+                names={item['relative_path'] for item in batch['manifest']}
+                if set(document_strategies or {})-names:raise HTTPException(400,'切分策略包含不在本次上传中的文档')
+                if (batch['selection']['existing_corpus'] or batch['selection']['core_layout']) and document_strategies:raise HTTPException(409,'核心古籍目录使用专用导入流程；请入库后在文献处理列表设置策略')
+            job=r.queue(db,'document_batch',{'batch_id':str(identifier),'processing':processing or policy['options']['ingestion'],
+                         'document_strategies':document_strategies or {},'policy_version':policy['version']})
             batch=r.one(db,"UPDATE kb_document_imports SET state='queued',group_id=:group,item_type=:kind,job_id=:job WHERE id=:id RETURNING *",group=group,kind=batch['item_type'] if retry else item_type,job=job['id'],id=identifier)
             library.advance(db)
             return self._response(batch)
@@ -115,7 +126,7 @@ def process_batch(root,payload,check,progress):
             check()
             with r.database.transaction(root) as db:
                 library.sync(db,core_groups={str(corpus):group})
-                moved=r.execute(db,"UPDATE kb_document_entries de SET group_id=:group,version=version+1 FROM kb_core_books cb WHERE cb.edition_id=de.edition_id AND cb.corpus_id=:corpus AND de.workspace_key=current_setting('shixue.workspace') AND de.origin_key LIKE 'core:%'",group=group,corpus=corpus).rowcount
+                moved=r.execute(db,"UPDATE kb_document_entries de SET group_id=:group,version=version+1 FROM kb_core_books cb WHERE cb.edition_id=de.edition_id AND cb.corpus_id=:corpus AND de.workspace_key=current_setting('shixue.catalog_workspace') AND de.origin_key LIKE 'core:%'",group=group,corpus=corpus).rowcount
                 library.advance(db)
             result={'files':moved,'succeeded':moved,'failed':0,'reused':bool(selection['existing_corpus']),'originals_copied':not bool(selection['existing_corpus'])}
         else:
@@ -128,12 +139,14 @@ def process_batch(root,payload,check,progress):
                     path=plain_file(Path(item['path']),Path(selection['root']) if selection['root'] else None)
                     info=path.stat()
                     if info.st_size!=item['size'] or info.st_mtime_ns!=item['mtime_ns']:raise HTTPException(409,'文件在预览后已变化，请重新选择')
-                    with path.open('rb') as source:data=source.read(MAX_FILE+1)
+                    # The preview already bounds the file size. Requesting the
+                    # global 250 MB ceiling allocates that much even for tiny files.
+                    with path.open('rb') as source:data=source.read(item['size']+1)
                     if len(data)!=item['size'] or len(data)>MAX_FILE:raise HTTPException(409,'文件读取过程中发生变化，请重新选择')
                     origin='upload:'+hashlib.sha256((str(path).casefold()+'\n'+hashlib.sha256(data).hexdigest()).encode()).hexdigest()
                     with r.database.transaction(root) as db:
                         library.state(db)
-                        existing=r.execute(db,"SELECT * FROM kb_document_entries WHERE workspace_key=current_setting('shixue.workspace') AND origin_key=:origin",origin=origin).mappings().first()
+                        existing=r.execute(db,"SELECT * FROM kb_document_entries WHERE workspace_key=current_setting('shixue.catalog_workspace') AND origin_key=:origin",origin=origin).mappings().first()
                     if existing:
                         with r.database.transaction(root) as db:
                             library.state(db)
@@ -144,12 +157,18 @@ def process_batch(root,payload,check,progress):
                             document=catalog.create({'title':path.stem[:300],'item_type':batch['item_type'],'source_note':'原始目录：'+item['relative_path']})
                             item['edition_id']=str(document['id'])
                             with r.database.transaction(root) as db:r.execute(db,'UPDATE kb_document_imports SET manifest=CAST(:items AS jsonb) WHERE id=:id',items=r.j(items),id=identifier)
-                        attached=catalog.import_file(item['edition_id'],path.name,data)
+                        if item['relative_path'] in payload.get('document_strategies',{}):
+                            from .processing_policy import save
+                            specific={**payload['processing'],'chunking':payload['document_strategies'][item['relative_path']]}
+                            with r.database.transaction(root) as db:
+                                current=r.one(db,'SELECT processing_version FROM kb_editions WHERE id=:id',id=item['edition_id'])
+                                save(db,item['edition_id'],specific,current['processing_version'])
+                        attached=catalog.import_file(item['edition_id'],path.name,data,processing=payload.get('processing'),policy_version=payload.get('policy_version'),embedding=payload.get('embedding'))
                         with r.database.transaction(root) as db:
                             library.state(db)
                             # Replace the compatibility reference, keeping the same edition and physical asset.
-                            r.execute(db,"DELETE FROM kb_document_entries WHERE workspace_key=current_setting('shixue.workspace') AND edition_id=:edition AND (asset_id IS NULL OR origin_key LIKE 'catalog:%')",edition=item['edition_id'])
-                            entry=r.one(db,"INSERT INTO kb_document_entries(id,workspace_key,group_id,edition_id,asset_id,relative_path,origin_key) VALUES(:id,current_setting('shixue.workspace'),:group,:edition,:asset,:path,:origin) ON CONFLICT(workspace_key,origin_key) DO UPDATE SET group_id=excluded.group_id RETURNING id",id=r.uid(),group=group,edition=item['edition_id'],asset=attached['asset_id'],path=item['relative_path'],origin=origin)
+                            r.execute(db,"DELETE FROM kb_document_entries WHERE workspace_key=current_setting('shixue.catalog_workspace') AND edition_id=:edition AND (asset_id IS NULL OR origin_key LIKE 'catalog:%')",edition=item['edition_id'])
+                            entry=r.one(db,"INSERT INTO kb_document_entries(id,workspace_key,group_id,edition_id,asset_id,relative_path,origin_key) VALUES(:id,current_setting('shixue.catalog_workspace'),:group,:edition,:asset,:path,:origin) ON CONFLICT(workspace_key,origin_key) DO UPDATE SET group_id=excluded.group_id RETURNING id",id=r.uid(),group=group,edition=item['edition_id'],asset=attached['asset_id'],path=item['relative_path'],origin=origin)
                             library.advance(db)
                         item.update(state='succeeded',entry_id=str(entry['id']),error='')
                 except HTTPException as error:item.update(state='failed',error=str(error.detail)[:300])

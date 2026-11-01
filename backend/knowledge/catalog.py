@@ -30,7 +30,7 @@ class CatalogService:
 
     def list(self, *, query='', limit=100, cursor=None, edition_ids=None, kind='all', source='all', category='', include_core=False, year='', tag='', state='all', category_id=None, uncategorized=False):
         if category_id and uncategorized: raise HTTPException(400,'不能同时指定分类和未分类')
-        values = {'query': '%' + query + '%', 'limit': min(200, max(1, limit)), 'library': r.DEFAULT_LIBRARY}
+        values = {'query': '%' + query + '%', 'limit': min(200, max(1, limit)), 'library': r.default_library()}
         where = 'NOT e.deleted AND w.library_id=:library'
         where += category_sql(category_id,uncategorized,values)
         if kind == 'ancient': where += " AND w.item_type='ancient'"
@@ -66,7 +66,7 @@ class CatalogService:
             values.update(created=created, identifier=identifier)
         with r.database.transaction(self.root) as connection:
             items = r.rows(connection, 'SELECT e.*,w.title,w.item_type,w.authors_json,w.date_label,w.version work_version, '
-                           "COALESCE((SELECT jsonb_agg(lm.category_id) FROM kb_literature_memberships lm JOIN kb_literature_categories lc ON lc.id=lm.category_id WHERE lm.work_id=e.work_id AND lc.workspace_key=current_setting('shixue.workspace')),'[]'::jsonb) category_ids, "
+                           "COALESCE((SELECT jsonb_agg(lm.category_id) FROM kb_literature_memberships lm JOIN kb_literature_categories lc ON lc.id=lm.category_id WHERE lm.work_id=e.work_id AND lc.workspace_key=current_setting('shixue.catalog_workspace')),'[]'::jsonb) category_ids, "
                            '(EXISTS(SELECT 1 FROM kb_core_books cb WHERE cb.edition_id=e.id)) is_core, '
                            '(SELECT category FROM kb_core_books cb WHERE cb.edition_id=e.id) category, '
                            '(SELECT count(*) FROM kb_edition_assets ea WHERE ea.edition_id=e.id) file_count, '
@@ -98,7 +98,7 @@ class CatalogService:
                 raise HTTPException(409, '版本资料已更新，请刷新后重试')
             return dict(item)
 
-    def import_file(self, identifier, filename, data):
+    def import_file(self, identifier, filename, data, processing=None, policy_version=None,embedding=None):
         filename = Path(filename.replace('\\', '/')).name
         if not data or len(data) > 250 * 1024 * 1024:
             raise HTTPException(400, '原件为空或超过 250 MB')
@@ -107,13 +107,13 @@ class CatalogService:
             r.one(connection, 'SELECT id FROM kb_editions WHERE id=:id AND NOT deleted FOR UPDATE', id=identifier)
             if r.execute(connection,'SELECT edition_id FROM kb_core_books WHERE edition_id=:id',id=identifier).first():
                 raise HTTPException(409,'核心古籍原始版本保持只读。请在项目中制作校对稿，或另建文献版本后添加原件')
-            existing = r.execute(connection, 'SELECT * FROM kb_assets WHERE sha256=:h FOR UPDATE', h=file_digest).mappings().first()
+            existing = r.execute(connection, 'SELECT * FROM kb_assets WHERE sha256=:h AND owner_role IS NOT DISTINCT FROM public.kb_document_owner() FOR UPDATE', h=file_digest).mappings().first()
             if existing and existing['availability'] == 'present':
                 asset = existing['id']
             else:
                 _, key = r.store_file(self.root, filename, data)
                 asset = r.execute(connection, 'INSERT INTO kb_assets(id,sha256,storage_key,size_bytes,mime_type) '
-                                  'VALUES(:id,:h,:key,:size,:mime) ON CONFLICT(sha256) DO UPDATE SET '
+                                  'VALUES(:id,:h,:key,:size,:mime) ON CONFLICT(owner_role,sha256) DO UPDATE SET '
                                   "storage_key=excluded.storage_key,size_bytes=excluded.size_bytes,availability='present' RETURNING id",
                                   id=r.uid(), h=file_digest, key=key, size=len(data),
                                   mime='application/pdf' if filename.lower().endswith('.pdf') else 'application/octet-stream').scalar_one()
@@ -126,7 +126,14 @@ class CatalogService:
                                 e=str(identifier), a=str(asset)).mappings().first()
                 return {**dict(job), 'duplicate': True, 'asset_id': str(asset)} if job else {
                     'state': 'succeeded', 'duplicate': True, 'asset_id': str(asset)}
-            job = r.queue(connection, 'import', {'edition_id': str(identifier), 'asset_id': str(asset)})
+            from .retrieval_settings import read
+            policy=read(self.root,connection)
+            from .processing_policy import effective
+            chosen=effective(connection,identifier,processing)
+            job = r.queue(connection, 'import', {'edition_id': str(identifier), 'asset_id': str(asset),
+                'processing':chosen['processing'],'document_policy_version':chosen['document_version'],'policy_source':chosen['source'],
+                **({'embedding':embedding} if embedding is not None else {}),
+                'policy_version':policy['version'] if policy_version is None else policy_version})
             return {**job, 'asset_id': str(asset), 'duplicate': False}
 
     def add_candidate(self, candidate_id):

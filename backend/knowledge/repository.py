@@ -11,9 +11,13 @@ from sqlalchemy import text
 
 from .database import database
 from .text import tokenize
-from .shared import read_only_library
 
 DEFAULT_LIBRARY = '00000000-0000-0000-0000-000000000001'
+
+
+def default_library():
+    from .shared import private_schema
+    return str(uuid.UUID(private_schema()[2:])) if private_schema() else DEFAULT_LIBRARY
 
 
 def uid():
@@ -45,13 +49,13 @@ def edition(connection, identifier, deleted=False):
 
 
 def create_edition(connection, payload):
-    execute(connection, 'INSERT INTO kb_libraries(id,name) VALUES(:id,:name) ON CONFLICT DO NOTHING', id=DEFAULT_LIBRARY, name='我的文献库')
+    execute(connection, 'INSERT INTO kb_libraries(id,name) VALUES(:id,:name) ON CONFLICT DO NOTHING', id=default_library(), name='我的文献库')
     work_id = payload.get('work_id') or uid()
     if payload.get('work_id'):
-        one(connection, 'SELECT id FROM kb_works WHERE id=:id AND library_id=:lib', id=work_id, lib=DEFAULT_LIBRARY)
+        one(connection, 'SELECT id FROM kb_works WHERE id=:id AND library_id=:lib', id=work_id, lib=default_library())
     else:
         execute(connection, 'INSERT INTO kb_works(id,library_id,title,item_type,authors_json,date_label) '
-                'VALUES(:id,:lib,:title,:kind,CAST(:authors AS jsonb),:date)', id=work_id, lib=DEFAULT_LIBRARY,
+                'VALUES(:id,:lib,:title,:kind,CAST(:authors AS jsonb),:date)', id=work_id, lib=default_library(),
                 title=payload['title'].strip(), kind=payload.get('item_type','other'), authors=j(payload.get('authors',[])), date=payload.get('date_label',''))
     identifier = uid()
     execute(connection, 'INSERT INTO kb_editions(id,work_id,label,publisher,publication_year,doi,source_note,tags) '
@@ -73,11 +77,11 @@ def list_editions(connection, query='', project_id=None, before=None, limit=100)
                 '(SELECT count(*) FROM kb_edition_assets a WHERE a.edition_id=e.id) file_count, '
                 '(SELECT state FROM kb_indexes i WHERE i.id=e.active_index) index_state '
                 'FROM kb_editions e JOIN kb_works w ON w.id=e.work_id WHERE ' + where + ' ORDER BY e.id::text DESC LIMIT :limit',
-                lib=DEFAULT_LIBRARY,q='%'+query+'%',project=project_id,before=before,limit=limit)
+                lib=default_library(),q='%'+query+'%',project=project_id,before=before,limit=limit)
 
 
 def asset_path(root: Path, key: str):
-    shared = os.environ.get('SHIXUE_LIBRARY_ROOT') if read_only_library() and key.startswith('assets/') else None
+    shared = os.environ.get('SHIXUE_LIBRARY_ROOT') if key.startswith('assets/') and not key.startswith('assets/personal/') else None
     base = Path(shared or root).resolve()
     path = (base / key).resolve()
     if base not in path.parents or not path.is_file():
@@ -86,8 +90,6 @@ def asset_path(root: Path, key: str):
 
 
 def store_file(root, filename, data):
-    if read_only_library():
-        raise HTTPException(403, '公共文献由管理员维护，请在个人项目中保存研究资料')
     if not data or len(data)>250*1024*1024:
         raise HTTPException(400, '文件为空或超过 250 MB')
     suffix = Path(filename).suffix.lower()
@@ -95,6 +97,9 @@ def store_file(root, filename, data):
         raise HTTPException(400,'支持 PDF、Word、TXT 与扫描图片')
     digest = hashlib.sha256(data).hexdigest()
     key = f'assets/knowledge/{digest[:2]}/{digest}{suffix}'
+    from .shared import private_schema
+    if private_schema():
+        key = f'assets/personal/{private_schema()[2:]}/{digest[:2]}/{digest}{suffix}'
     target = root / key
     target.parent.mkdir(parents=True,exist_ok=True)
     if not target.exists():
@@ -108,6 +113,9 @@ def store_file(root, filename, data):
 
 
 def queue(connection, kind, payload):
+    if kind in {'index','import','document_batch'} and 'embedding' not in payload:
+        from .embedding_config import current
+        payload={**payload,'embedding':current(None,connection)}
     identifier = uid()
     execute(connection, "INSERT INTO kb_jobs(id,kind,payload,workspace_key) VALUES(:id,:kind,CAST(:payload AS jsonb),current_setting('shixue.workspace'))",
             id=identifier,kind=kind,payload=j(payload))

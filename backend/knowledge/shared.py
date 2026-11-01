@@ -1,4 +1,4 @@
-"""Trusted portal process configuration; never selected by an HTTP parameter."""
+"""Trusted portal identity; document access is enforced by PostgreSQL RLS."""
 import os
 import re
 
@@ -18,7 +18,3 @@ def private_schema():
 
 def library_key(fallback):
     return os.environ.get('SHIXUE_LIBRARY_KEY') or fallback
-
-
-def read_only_library():
-    return bool(private_schema())

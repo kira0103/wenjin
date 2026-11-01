@@ -137,7 +137,7 @@ class CatalogActivation:
                         if len(h)!=64 or any(c not in '0123456789abcdef' for c in h.lower()): h=hashlib.sha256(('missing:'+item['id']).encode()).hexdigest()
                         key='assets/missing/'+h;size=0;availability='missing'
                     asset=str(r.execute(connection,'INSERT INTO kb_assets(id,sha256,storage_key,size_bytes,availability) VALUES(:id,:h,:k,:s,:v) '
-                                        'ON CONFLICT(sha256) DO UPDATE SET sha256=excluded.sha256 RETURNING id',id=r.uid(),h=h,k=key,s=size,v=availability).scalar_one())
+                                        'ON CONFLICT(owner_role,sha256) DO UPDATE SET sha256=excluded.sha256 RETURNING id',id=r.uid(),h=h,k=key,s=size,v=availability).scalar_one())
                     r.execute(connection,'INSERT INTO kb_edition_assets(edition_id,asset_id,filename,position_kind,ordinal) VALUES(:e,:a,:f,:p,:o) ON CONFLICT DO NOTHING',
                               e=edition,a=asset,f=item['filename'],p=item['position_kind'],o=ordinal)
                     r.execute(connection,'INSERT INTO kb_legacy_links(material_id,entry_id,edition_id,asset_id,source_digest) VALUES(:m,:entry,:e,:a,:h)',

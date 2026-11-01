@@ -64,7 +64,7 @@ def start(root,payload,resolved,settings):
         for key in {g[0] for g in groups}|{'review','writer'}:
             slug=ROLE_SLUGS[key];chosen=payload.role_versions.get(key)
             if not chosen:
-                chosen=r.one(c,"SELECT active_version FROM kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind='agent' AND slug=:s",s=slug)['active_version']
+                chosen=r.one(c,"SELECT active_version FROM public.kb_assistant_definitions WHERE workspace_key=current_setting('shixue.workspace') AND kind='agent' AND slug=:s",s=slug)['active_version']
             if not chosen:raise HTTPException(409,'请先发布协作角色：'+slug)
             profiles[key]=registry.freeze(c,chosen)
         count=len(groups)+2;allocation=min(120000,payload.token_budget//count)

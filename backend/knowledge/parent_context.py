@@ -27,9 +27,25 @@ def window(body,start,end,budget):
 def attach(connection,items,scope,options,scope_builder):
     plans=[]
     for item in items:
+        if options['parent_enabled'] and item.get('parent_spans'):
+            saved=stored_parent(connection,item,scope,options,scope_builder)
+            if saved:
+                item['parent_context']=saved
+                plans.append({'block_id':str(item['block_id']),'parent_id':saved['id'],'boundaries':saved['boundaries'],
+                              'spans':[{k:v for k,v in part.items() if k not in {'body','section_path','truncated'}} for part in saved['parts']]})
+                continue
         budget=options['parent_characters']
         radius=options['neighbor_blocks'] if options['parent_enabled'] else 0
         lower,upper=section_bounds(item['full_body'],item['start_offset']) if options['parent_enabled'] else (0,len(item['full_body']))
+        if options['parent_enabled'] and item.get('index_id'):
+            from .chunking import stored_config,configured_spans
+            config=stored_config(r.execute(connection,'SELECT config FROM kb_indexes WHERE id=:id',id=item['index_id']).scalar())
+            if config['mode']=='parent_child':
+                parent={**config,'mode':'recursive','size':config['parent_size'],'overlap':0}
+                bounds=next(((s,e) for s,e,_ in configured_spans(item['full_body'],parent) if s<=item['start_offset']<e),None)
+                if bounds:
+                    lower,upper=max(lower,bounds[0]),min(upper,bounds[1])
+                    radius=0
         start,end,body=window(item['full_body'][lower:upper],item['start_offset']-lower,min(item['end_offset'],upper)-lower,budget)
         start+=lower;end+=lower
         primary={'block_id':str(item['block_id']),'revision_id':str(item['revision_id']),'asset_id':str(item['asset_id']),
@@ -83,6 +99,47 @@ def attach(connection,items,scope,options,scope_builder):
         plans.append({'block_id':str(item['block_id']),'parent_id':parent_id,'boundaries':boundaries,
                       'spans':[{key:part[key] for key in ('block_id','revision_id','asset_id','page_index','kind','start','end','role')} for part in ordered]})
     return plans
+
+
+def stored_parent(connection,item,scope,options,scope_builder):
+    """Recheck every persisted parent span against RLS and this query's scope."""
+    spans=item['parent_spans']
+    if not isinstance(spans,list) or not 0<len(spans)<=256:return None
+    try:
+        selected=[(str(__import__('uuid').UUID(s['block_id'])),int(s['start']),int(s['end']),s.get('role','context')) for s in spans]
+    except (KeyError,ValueError,TypeError):return None
+    values={};allowed=scope_builder(scope,values)
+    blocks=r.rows(connection,'SELECT b.id,b.ordinal,b.asset_id,b.page_index,b.kind,b.section_path,b.body FROM kb_blocks b '
+                  'JOIN kb_revisions rev ON rev.id=b.revision_id JOIN kb_editions e ON e.id=rev.edition_id '
+                  'WHERE b.id=ANY(CAST(:parent_ids AS uuid[])) AND b.revision_id=:parent_revision AND b.asset_id=:parent_asset AND '+allowed+' ORDER BY b.ordinal',
+                  parent_ids=list({s[0] for s in selected}),parent_revision=item['revision_id'],parent_asset=item['asset_id'],**values)
+    primary=next((b for b in blocks if str(b['id'])==str(item['block_id'])),None)
+    if not primary:return None
+    primary_span=next((s for s in selected if s[0]==str(primary['id']) and 0<=s[1]<=item['start_offset']<item['end_offset']<=s[2]<=len(primary['body'])),None)
+    if not primary_span:return None
+    _id,lo,hi,_role=primary_span
+    budget=options['parent_characters'];start,end,body=window(primary['body'][lo:hi],item['start_offset']-lo,item['end_offset']-lo,budget)
+    start+=lo;end+=lo
+    def part(block,start,end,role):
+        return {'block_id':str(block['id']),'revision_id':str(item['revision_id']),'asset_id':str(block['asset_id']),
+                'page_index':block['page_index'],'kind':block['kind'],'section_path':block['section_path'],'start':start,'end':end,
+                'body':block['body'][start:end],'role':role,'truncated':start>0 or end<len(block['body'])}
+    parts=[part(primary,start,end,'primary')];remaining=budget-len(body)
+    by_id={str(b['id']):b for b in blocks}
+    ordered=sorted(selected,key=lambda s:(s[3]!='header',abs(by_id[s[0]]['ordinal']-primary['ordinal']) if s[0] in by_id else 999999,s[1]))
+    for selected_span in ordered:
+        block=by_id.get(selected_span[0])
+        if block is None or selected_span==primary_span or remaining<=0:continue
+        if block['kind']!=primary['kind'] or block['section_path']!=primary['section_path'] or block['page_index']!=primary['page_index']:continue
+        _id,lo,hi,_role=selected_span
+        if not 0<=lo<hi<=len(block['body']):continue
+        role='before' if block['ordinal']<primary['ordinal'] or block is primary and hi<=start else 'after';size=min(remaining,hi-lo)
+        first=hi-size if role=='before' else lo
+        parts.append(part(block,first,first+size,role));remaining-=size
+    parts.sort(key=lambda p:(by_id[p['block_id']]['ordinal'],p['start']))
+    return {'id':hashlib.sha256(r.j([(p['block_id'],p['start'],p['end']) for p in parts]).encode()).hexdigest(),
+            'parts':parts,'boundaries':[{'reason':'stored_parent_scope_and_budget'}],
+            'characters':sum(len(p['body']) for p in parts)}
 
 
 def evidence(connection,items,budget,per_parent):

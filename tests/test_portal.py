@@ -16,6 +16,22 @@ from backend.portal_fleet import WorkspaceTarget
 PASSWORD = 'isolated-password-12345'
 
 
+class FleetRecoveryTests(unittest.TestCase):
+    def test_previous_failure_does_not_reject_a_new_starting_host(self):
+        from unittest.mock import Mock,patch
+        from backend.portal_fleet import WorkspaceFleet
+        with tempfile.TemporaryDirectory() as folder:
+            fleet=WorkspaceFleet(Path(folder),timeout=2)
+            runtime=fleet.runtime(fleet.library);runtime.mkdir(parents=True)
+            (runtime/'host.json').write_text(json.dumps({'state':'failed'}),encoding='utf-8')
+            child=Mock();child.poll.return_value=None
+            expected=WorkspaceTarget('http://127.0.0.1:1234','test')
+            with patch('backend.portal_fleet.subprocess.Popen',return_value=child),patch.object(fleet,'_target',side_effect=[None,None,expected]),patch('backend.portal_fleet.time.sleep'):
+                self.assertEqual(fleet.ensure_library(),expected)
+                self.assertEqual(json.loads((runtime/'host.json').read_text())['state'],'starting')
+            fleet.probes.close()
+
+
 class FakeFleet:
     def __init__(self):
         self.servers = {}
@@ -125,6 +141,24 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400, response.text)
         self.assertFalse(self.fleet.requests)
 
+    def test_shared_retrieval_and_skill_management_require_admin_entry(self):
+        self.login('alice')
+        for method,path in [('GET','retrieval-settings'),('PUT','retrieval-settings'),('GET','retrieval-status'),('POST','retrieval-test'),('GET','rag-documents'),('POST','rag-preview'),('POST','rag-process'),('POST','rag-text'),
+                            ('POST','rerank-model/prepare'),('POST','skills'),('POST','skills/import'),
+                            ('POST','skills/validate'),('PUT','skills/example'),('POST','skills/example/publish'),
+                            ('POST','skills/example/tests'),('GET','skills/example/tests'),
+                            ('GET','skills/example/versions/example/export'),('DELETE','agents/example')]:
+            response=self.client.request(method,'/api/knowledge/'+path)
+            self.assertEqual(response.status_code,403,(method,path,response.text))
+        self.assertFalse(self.fleet.requests)
+        self.assertEqual(self.client.get('/api/admin/library/knowledge/retrieval-settings').status_code,403)
+        self.assertEqual(self.client.get('/api/knowledge/agents').status_code,200)
+        self.login('admin')
+        self.assertEqual(self.client.get('/api/knowledge/retrieval-settings').status_code,403)
+        response=self.client.get('/api/admin/library/knowledge/retrieval-settings')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertIn(('ensure','shared-library'),self.fleet.requests)
+
     def test_switching_another_tab_account_cannot_submit_the_old_accounts_draft(self):
         self.login('alice')
         self.login('bobby')
@@ -136,9 +170,13 @@ class PortalTests(unittest.TestCase):
 
     def test_public_library_admin_entry_and_private_mutation_guard(self):
         self.login('alice')
-        for path,method in [('/api/admin/library/knowledge/catalog','get'),('/api/knowledge/catalog','post'),('/api/knowledge/%2563atalog','post'),('/api/knowledge/editions/abc/reindex','post'),('/api/knowledge/document-entries/move','post'),('/api/uploads','post')]:
+        for path,method in [('/api/admin/library/knowledge/catalog','get'),('/api/system-library/settings','get'),('/api/knowledge/document-imports/preview','post'),('/api/submissions/journals','post'),('/api/submissions/import','post')]:
             self.assertEqual(getattr(self.client,method)(path).status_code,403,path)
         self.assertFalse(self.fleet.requests)
+        self.assertEqual(self.client.get('/api/system-library/knowledge/catalog').status_code,200)
+        self.assertIn(('ensure','shared-library'),self.fleet.requests)
+        self.assertNotIn(('ensure',self.alice['id']),self.fleet.requests)
+        self.assertEqual(self.client.post('/api/system-library/knowledge/catalog').status_code,403)
         self.client.delete('/api/session');self.login()
         result=self.client.get('/api/admin/library/knowledge/catalog')
         self.assertEqual(result.status_code,200,result.text)
@@ -201,3 +239,36 @@ class PortalTests(unittest.TestCase):
         with self.accounts.connection() as db:
             self.assertEqual(db.execute('SELECT max(version) FROM portal_schema').fetchone()[0],2)
             self.assertEqual(db.execute('SELECT count(*) FROM portal_users').fetchone()[0],3)
+
+
+class PrivateJsonWriteTests(unittest.TestCase):
+    @unittest.skipUnless(__import__('os').name=='nt','Windows sharing behavior')
+    def test_transient_windows_sharing_violation_preserves_atomic_write(self):
+        from unittest.mock import patch
+        from backend import portal_database
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'host.json';path.write_text('{"state":"starting"}',encoding='utf-8')
+            replace=portal_database.os.replace
+            attempts=0
+            def temporarily_locked(source,target):
+                nonlocal attempts
+                attempts+=1
+                if attempts<3:
+                    self.assertEqual(json.loads(path.read_text())['state'],'starting')
+                    raise PermissionError('transient Windows sharing violation')
+                replace(source,target)
+            with patch.object(portal_database.os,'replace',side_effect=temporarily_locked),patch.object(portal_database.time,'sleep') as sleep:
+                portal_database.save_private_json(path,{'state':'ready'})
+            self.assertEqual(attempts,3);self.assertEqual(sleep.call_count,2)
+            self.assertEqual(json.loads(path.read_text())['state'],'ready')
+            self.assertEqual(list(Path(folder).glob('*.tmp')),[])
+
+    def test_persistent_write_failure_preserves_previous_state_and_cleans_temp(self):
+        from unittest.mock import patch
+        from backend import portal_database
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'host.json';path.write_text('{"state":"ready"}',encoding='utf-8')
+            with patch.object(portal_database.os,'replace',side_effect=PermissionError('permanent denial')),patch.object(portal_database.time,'sleep'):
+                with self.assertRaises(PermissionError):portal_database.save_private_json(path,{'state':'failed'})
+            self.assertEqual(json.loads(path.read_text())['state'],'ready')
+            self.assertEqual(list(Path(folder).glob('*.tmp')),[])

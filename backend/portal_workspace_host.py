@@ -131,6 +131,10 @@ def main():
             result = activation.migrate()
             if not result['active']:
                 raise RuntimeError('工作区文献库尚未完成初始化')
+        if args.kind == 'library':
+            from .knowledge import assistant_registry, repository
+            with repository.database.transaction(root) as db:
+                assistant_registry.ensure_defaults(db)
         port = free_port()
         base = f'http://127.0.0.1:{port}'
         worker_stop = runtime / 'worker.stop'

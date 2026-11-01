@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -180,6 +181,34 @@ class SubmissionsTest(unittest.TestCase):
         self.assertEqual(paper['source_title'], '成果题目')
         self.action(paper, 'submit', 409, journal_id=journal['id'])
         self.assertEqual(len(paper['attempts']), 1)
+
+    def test_central_catalog_updates_preserve_private_preferences_and_paper_ids(self):
+        journal=self.journal('共享期刊')
+        journal=self.put('/journals/'+journal['id'],{**journal,'favorite':True,'notes':'个人选题记录'})
+        paper=self.paper(target_journal_id=journal['id'])
+        paper=self.action(paper,'submit')
+        central=Path(self.temp.name)/'shared';central.mkdir()
+        with closing(sqlite3.connect(central/'library.sqlite')) as db:
+            db.row_factory=sqlite3.Row
+            s.migrate(db,seed=False)
+            payload=s.ImportRequest(content='期刊名称,学科门类,期刊等级,官网,投稿地址\n共享期刊,历史,C刊,,\n',label='系统目录')
+            s.import_catalog(db,payload)
+            db.execute("UPDATE submission_journals SET name='共享期刊新名',name_key=?,discipline='系统学科'",(s.name_key('共享期刊新名'),))
+            db.commit()
+        with patch.dict('os.environ',{'SHIXUE_LIBRARY_ROOT':str(central)}):
+            overview=self.overview()
+            self.assertTrue(overview['public_catalog'])
+            shared=overview['journals'][0]
+            self.assertEqual(shared['id'],journal['id'])
+            self.assertEqual(shared['name'],'共享期刊新名')
+            self.assertEqual(shared['discipline'],'系统学科')
+            self.assertEqual(shared['notes'],'个人选题记录')
+            self.assertTrue(shared['favorite'])
+            self.put('/journals/'+journal['id'],{**journal,'name':'擅改系统'},403)
+            fresh=self.client.get(self.base+'/papers/'+paper['id']).json()
+            self.assertEqual(fresh['target_journal_id'],paper['target_journal_id'])
+            self.assertEqual(fresh['attempts'][0]['journal_id'],journal['id'])
+            self.assertEqual(fresh['attempts'][0]['journal_name'],'共享期刊')
 
 
 if __name__ == '__main__':

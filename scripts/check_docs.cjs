@@ -3,7 +3,7 @@ const fs=require('node:fs'),path=require('node:path'),{execFileSync}=require('no
 const root=path.resolve(__dirname,'..');
 const maintained=['README.md','docs/MAINTENANCE.md'];
 const read=file=>fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'');
-const npmPattern=/\bnpm\s+run\s+([A-Za-z0-9][\w:-]*)/g;
+const npmPattern=/\bnpm\s+(?:run\s+([A-Za-z0-9][\w:-]*)|(start|stop|test)\b)/g;
 const modulePattern=/(?:^|\s)-m\s+(backend[\w.]*)/;
 
 function anchors(content){
@@ -31,19 +31,22 @@ function validateGuide(name,content,scripts,guides){
     }
     if(fragment&&guides[relative]&&!anchors(guides[relative]).has(decodeURIComponent(fragment)))errors.push(`${name}: heading missing: ${link}`);
   }
-  for(const [,command] of content.matchAll(npmPattern))if(!Object.hasOwn(scripts,command))errors.push(`${name}: npm script missing: ${command}`);
+  for(const match of content.matchAll(npmPattern)){const command=match[1]||match[2];if(!Object.hasOwn(scripts,command))errors.push(`${name}: npm script missing: ${command}`);}
   for(const line of content.split(/\r?\n/)){
-    const invoked=[...line.matchAll(npmPattern)][0];
-    const module=modulePattern.exec(invoked?scripts[invoked[1]]||'':line);
-    if(!module)continue;
-    const source=path.join(root,module[1].replace(/\./g,'/')+'.py');
-    if(!fs.existsSync(source)){errors.push(`${name}: Python module missing: ${module[1]}`);continue;}
-    const flags=new Set(['--help']);
-    // Read literal positional arguments before add_argument's keyword options.
-    for(const call of read(source).matchAll(/\.add_argument\(\s*((?:(?:'[^'\r\n]*'|"[^"\r\n]*")\s*,?\s*)+)/g)){
-      for(const [,argument] of call[1].matchAll(/['"]([^'"]+)['"]/g))flags.add(argument);
+    const invoked=[...line.matchAll(npmPattern)];
+    const segments=invoked.length?invoked.map((item,index)=>({command:scripts[item[1]||item[2]]||'',text:line.slice(item.index,invoked[index+1]?.index)})):[{command:line,text:line}];
+    for(const segment of segments){
+      const module=modulePattern.exec(segment.command);
+      if(!module)continue;
+      const source=path.join(root,module[1].replace(/\./g,'/')+'.py');
+      if(!fs.existsSync(source)){errors.push(`${name}: Python module missing: ${module[1]}`);continue;}
+      const flags=new Set(['--help']);
+      // Read literal positional arguments before add_argument's keyword options.
+      for(const call of read(source).matchAll(/\.add_argument\(\s*((?:(?:'[^'\r\n]*'|"[^"\r\n]*")\s*,?\s*)+)/g)){
+        for(const [,argument] of call[1].matchAll(/['"]([^'"]+)['"]/g))flags.add(argument);
+      }
+      for(const [flag] of segment.text.split(' #')[0].matchAll(/(?<![\w-])--[a-z][\w-]*/g))if(!flags.has(flag))errors.push(`${name}: ${module[1]} has no argument ${flag}`);
     }
-    for(const [flag] of line.split(' #')[0].matchAll(/(?<![\w-])--[a-z][\w-]*/g))if(!flags.has(flag))errors.push(`${name}: ${module[1]} has no argument ${flag}`);
   }
   return errors;
 }
@@ -51,8 +54,8 @@ function validateGuide(name,content,scripts,guides){
 function main(){
   const files=execFileSync('git',['ls-files','-z','--cached','--others','--exclude-standard','--','*.md'],{cwd:root,encoding:'utf8'}).split('\0');
   const present=new Set(files.filter(name=>name&&fs.existsSync(path.join(root,name))));
-  // Ignored root notes can still clutter the user's workspace.
-  for(const entry of fs.readdirSync(root,{withFileTypes:true}))if(entry.isFile()&&entry.name.endsWith('.md'))present.add(entry.name);
+  // Ignored local reviews and experiments are not maintained repository guides.
+  // git ls-files above still checks all tracked and non-ignored Markdown files.
   const errors=[];
   for(const name of present)if(!maintained.includes(name))errors.push(`Unexpected guide; consolidate or archive it: ${name}`);
   for(const name of maintained)if(!present.has(name))errors.push(`Maintained guide missing: ${name}`);

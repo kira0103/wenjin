@@ -3,13 +3,13 @@ import { call } from './transport';
 import type { SourcePreview } from './knowledge/documentTypes';
 
 export type SelectedDocument = { name: string; data: ArrayBuffer | Blob };
-const extensions = /\.(pdf|docx?|txt|md|png|jpe?g|tiff?)$/i;
+const extensions = /\.(pdf|docx?|txt|md|html?|csv|pptx|xlsx|png|jpe?g|tiff?)$/i;
 
 function chooseFiles(directory = false): Promise<File[]> {
   return new Promise(resolve => {
     const input = document.createElement('input');
     input.type = 'file'; input.multiple = true;
-    input.accept = '.pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff';
+    input.accept = '.pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.html,.htm,.csv,.pptx,.xlsx';
     if (directory) input.setAttribute('webkitdirectory', '');
     input.style.display = 'none';
     const finish = (files: File[]) => { input.remove(); resolve(files); };

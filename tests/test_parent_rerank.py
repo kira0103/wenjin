@@ -13,6 +13,22 @@ from backend.knowledge.parent_context import window
 
 
 class RerankRules(unittest.TestCase):
+    def test_hybrid_weights_balance_channels_without_chunk_multiplication(self):
+        from backend.knowledge.diagnostics import fusion
+        first={'block_id':'a','body':'字面命中'};second={'block_id':'b','body':'语义命中','semantic_score':.9}
+        channels=[('keyword',[first]*10),('normalized_substring',[first]),('semantic',[second])]
+        semantic,_=fusion(channels,.9)
+        keyword,_=fusion(channels,.1)
+        self.assertEqual(semantic[0]['block_id'],'b');self.assertEqual(keyword[0]['block_id'],'a')
+        self.assertEqual(fusion(channels,0)[0][0]['block_id'],'a')
+        self.assertEqual([item['block_id'] for item in fusion(channels,1)[0]],['b'])
+        self.assertEqual(fusion([('keyword',[first]*10)],.1)[0][0]['score'],fusion([('keyword',[first])],.1)[0][0]['score'])
+
+    def test_retrieval_policy_rejects_invalid_thresholds_and_candidate_budgets(self):
+        from pydantic import ValidationError
+        for value in ({'top_k':20,'recall_candidates':5},{'semantic_min_score':1.2},{'semantic_weight':float('nan')}):
+            with self.assertRaises(ValidationError):RetrievalOptions(**value)
+        self.assertEqual(RetrievalOptions.model_validate({'rerank_candidates':7}).default_mode,'hybrid')
     def test_preparing_another_model_cannot_change_embedding_identity(self):
         import tempfile
         from types import SimpleNamespace
@@ -22,13 +38,16 @@ class RerankRules(unittest.TestCase):
             (directory/'weights.onnx').write_bytes(b'fixed-embedding-weights')
             (directory/'tokenizer.json').write_text('{}',encoding='utf-8')
             instance=SimpleNamespace(model=SimpleNamespace(_model_dir=directory))
+            def clear_test_model():
+                for key in tuple(models._models):
+                    if key[0]==str(cache.resolve()):models._models.pop(key)
             with patch.dict(os.environ,{'SHIXUE_KB_MODEL_CACHE':str(cache)}),patch('fastembed.TextEmbedding',return_value=instance):
                 _,original=models.embedding_model(root)
-                models._models.pop(str(cache.resolve()))
+                clear_test_model()
                 neighbor=cache/'reranker';neighbor.mkdir();(neighbor/'weights.onnx').write_bytes(b'unrelated-new-weights')
                 (neighbor/'tokenizer.json').write_text('{"other":true}',encoding='utf-8')
                 _,after=models.embedding_model(root)
-                models._models.pop(str(cache.resolve()))
+                clear_test_model()
             self.assertEqual(original,after)
 
     def test_parent_window_contains_long_hit_when_budget_allows(self):
@@ -96,6 +115,44 @@ class ParentRerankNativeTests(unittest.TestCase):
 
     def query(self,edition,query,**kwargs):
         return self.checked(self.client.post('/api/knowledge/search',json={'query':query,'mode':'exact','scope':{'edition_ids':[edition]},**kwargs}))
+
+    def test_saved_defaults_and_draft_test_share_pipeline_without_overwriting_settings(self):
+        edition,_,_=self.document('后台配置测试','财政赋税配置命中')
+        current=self.checked(self.client.get('/api/knowledge/retrieval-settings'))
+        options={**current['options'],'default_mode':'keyword','top_k':2,'recall_candidates':5}
+        saved=self.checked(self.client.put('/api/knowledge/retrieval-settings',json={'version':current['version'],'options':options}))
+        found=self.checked(self.client.post('/api/knowledge/search',json={'query':'财政赋税','scope':{'edition_ids':[edition]}}))
+        self.assertEqual(found['mode'],'keyword');self.assertEqual(len(found['results']),2)
+        self.assertEqual(found['diagnostics']['requested_mode'],'auto')
+        draft=self.checked(self.client.post('/api/knowledge/retrieval-test',json={'query':'财政赋税','scope':{'edition_ids':[edition]},'retrieval':{**options,'top_k':1}}))
+        self.assertEqual(len(draft['results']),1);self.assertEqual(draft['configuration_source'],'draft')
+        self.assertNotIn('full_body',draft['results'][0])
+        self.assertEqual(self.checked(self.client.get('/api/knowledge/retrieval-settings')),saved)
+        status=self.checked(self.client.get('/api/knowledge/retrieval-status'))
+        self.assertGreater(status['index']['documents'],0);self.assertEqual(status['embedding']['dimensions'],384)
+        self.assertEqual(self.client.post('/api/knowledge/retrieval-test',json={'query':'财政','scope':{'library_visibility':'personal'}}).status_code,400)
+
+    def test_vector_threshold_and_configured_model_failure_policy_execute_on_server(self):
+        edition,_,_=self.document('向量阈值测试','财政赋税向量策略')
+        vector=[1.0]+[0.0]*383;other=[0.6,0.8]+[0.0]*382
+        with r.database.transaction(self.root) as db:
+            r.execute(db,"UPDATE kb_indexes SET model_key='policy-vector-fixture',state='ready' WHERE id=(SELECT active_index FROM kb_editions WHERE id=:id)",id=edition)
+            r.execute(db,'UPDATE kb_chunks c SET embedding=CAST(:v AS vector) FROM kb_blocks b WHERE b.id=c.block_id AND b.revision_id=(SELECT active_revision FROM kb_editions WHERE id=:id)',id=edition,v=r.j(other))
+            r.execute(db,'UPDATE kb_chunks c SET embedding=CAST(:v AS vector) FROM kb_blocks b WHERE b.id=c.block_id AND b.page_index=2 AND b.revision_id=(SELECT active_revision FROM kb_editions WHERE id=:id)',id=edition,v=r.j(vector))
+        payload={'query':'财政赋税','mode':'semantic','scope':{'edition_ids':[edition]},'retrieval':RetrievalOptions(semantic_min_score=.8).model_dump()}
+        with patch('backend.knowledge.retrieval.embed',return_value=([vector],'policy-vector-fixture')):
+            found=self.checked(self.client.post('/api/knowledge/search',json=payload))
+        self.assertEqual([hit['page_index'] for hit in found['results']],[2])
+        self.assertAlmostEqual(found['results'][0]['semantic_score'],1)
+        stage=next(s for s in found['diagnostics']['stages'] if s['name']=='semantic')
+        self.assertGreater(stage['discarded_by_threshold'],0)
+        with patch('backend.knowledge.retrieval.embed',side_effect=ValueError('private-provider-secret')):
+            payload.update(mode='hybrid',retrieval=RetrievalOptions(hybrid_fallback=True).model_dump())
+            fallback=self.checked(self.client.post('/api/knowledge/search',json=payload))
+            self.assertTrue(fallback['results']);self.assertTrue(fallback['warnings'])
+            self.assertNotIn('private-provider-secret',json.dumps(fallback))
+            payload['retrieval']['hybrid_fallback']=False
+            self.assertEqual(self.client.post('/api/knowledge/search',json=payload).status_code,503)
 
     def test_parent_context_crosses_allowed_pages_with_independent_anchors(self):
         from backend.knowledge.retrieval import answer

@@ -2,6 +2,7 @@
 import json
 import os
 import secrets
+import time
 from pathlib import Path
 
 import psycopg
@@ -21,7 +22,16 @@ def save_private_json(path, value):
             json.dump(value, stream, ensure_ascii=False)
         if os.name != 'nt':
             temporary.chmod(0o600)
-        os.replace(temporary, path)
+        # Windows readers / antivirus can briefly deny replacing an open file.
+        # Preserve atomic writes and allow those handles to close before failing.
+        for attempt in range(8):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError:
+                if os.name != 'nt' or attempt == 7:
+                    raise
+                time.sleep(.025 * (attempt + 1))
     finally:
         temporary.unlink(missing_ok=True)
 

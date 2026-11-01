@@ -31,6 +31,9 @@ class WorkspaceFleet:
         self.lock = threading.Lock()
         self.locks = {}
         self.children = {}
+        self.ready_checks = {}
+        self.provisioned = {}
+        self.probes = httpx.Client(timeout=3, trust_env=False)
         self.models = self.root / 'private' / 'models.json'
         identity = self.root / 'private' / 'library.json'
         identity.parent.mkdir(parents=True, exist_ok=True)
@@ -53,6 +56,9 @@ class WorkspaceFleet:
         configuration = json.loads((self.runtime(self.library) / 'shared-database.json').read_text(encoding='utf-8'))
         anchors = projects = 0
         with psycopg.connect(native_url(configuration['owner_url'])) as db:
+            if not db.execute('SELECT 1 FROM public.kb_editions WHERE id=%s AND owner_role IS NULL',(identifier,)).fetchone():
+                from fastapi import HTTPException
+                raise HTTPException(404,'找不到系统文献')
             schemas = ['public'] + [row[0] for row in db.execute("SELECT nspname FROM pg_namespace WHERE nspname ~ '^w_[0-9a-f]{32}$'")]
             for schema in schemas:
                 anchors += db.execute(sql.SQL('SELECT count(*) FROM {}.kb_anchors WHERE edition_id=%s').format(sql.Identifier(schema)), (identifier,)).fetchone()[0]
@@ -70,7 +76,12 @@ class WorkspaceFleet:
         with self.lock:
             lock = self.locks.setdefault('schema-' + user['workspace_id'], threading.Lock())
         with lock:
-            library = json.loads((self.runtime(self.library) / 'shared-database.json').read_text(encoding='utf-8'))
+            shared_path = self.runtime(self.library) / 'shared-database.json'
+            library = json.loads(shared_path.read_text(encoding='utf-8'))
+            signature = (library['runtime_url'], library['key'])
+            # Provision once per database identity, rather than rewriting credentials on every HTTP request.
+            if self.provisioned.get(user['workspace_id']) == signature:
+                return self._ensure(user)
             try:
                 provisioned=provision_private(library, user['workspace_id'], configuration)
             except RuntimeError:
@@ -83,6 +94,7 @@ class WorkspaceFleet:
                 fingerprint=hashlib.sha256(provisioned['runtime_url'].encode()).hexdigest()
                 if host.get('state')=='ready' and host.get('database_key')!=fingerprint:
                     self.stop(user)
+            self.provisioned[user['workspace_id']] = signature
         return self._ensure(user)
 
     def runtime(self, user):
@@ -129,11 +141,13 @@ class WorkspaceFleet:
                     (runtime / 'host.stop').unlink(missing_ok=True)
             target = self._target(runtime)
             if target:
+                if time.monotonic() - self.ready_checks.get(user['workspace_id'], 0) < 2:
+                    return target
                 try:
-                    with httpx.Client(timeout=3) as client:
-                        response = client.get(target.url + '/api/session', headers={'X-App-Token': target.token})
-                        if response.is_success and response.json().get('authenticated'):
-                            return target
+                    response = self.probes.get(target.url + '/api/session', headers={'X-App-Token': target.token})
+                    if response.is_success and response.json().get('authenticated'):
+                        self.ready_checks[user['workspace_id']] = time.monotonic()
+                        return target
                 except (httpx.HTTPError, ValueError):
                     pass
             runtime.mkdir(parents=True, exist_ok=True)
@@ -145,24 +159,26 @@ class WorkspaceFleet:
             except RuntimeError:
                 running = True
             else:
-                host_lease.release()
                 running = False
             if not running:
-                # Account bootstrap passwords never enter workspace process environments.
-                environment = {key: value for key, value in os.environ.items() if key not in {'SHIXUE_PORTAL_ADMIN_PASSWORD', 'SHIXUE_SERVER_TOKEN'}}
-                workspace = self.root / 'shared-library' if library else self.root / 'workspaces' / user['workspace_id']
-                log = (runtime / 'host.log').open('a', encoding='utf-8')
                 try:
-                    child = subprocess.Popen([sys.executable, '-m', 'backend.portal_workspace_host',
-                                              '--root', str(workspace), '--runtime', str(runtime),
-                                              '--workspace', user['workspace_id'], '--models', str(self.models),
-                                              '--kind', 'library' if library else 'user'],
-                                             cwd=Path(__file__).resolve().parents[1], env=environment,
-                                             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                                             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
-                    self.children[user['workspace_id']] = child
+                    # Reset the previous attempt while holding its lease. The new
+                    # child cannot publish readiness until the lease is released.
+                    save_private_json(runtime/'host.json',{'state':'starting','updated_at':time.time()})
+                    # Account bootstrap passwords never enter workspace process environments.
+                    environment = {key: value for key, value in os.environ.items() if key not in {'SHIXUE_PORTAL_ADMIN_PASSWORD', 'SHIXUE_SERVER_TOKEN'}}
+                    workspace = self.root / 'shared-library' if library else self.root / 'workspaces' / user['workspace_id']
+                    with (runtime / 'host.log').open('a', encoding='utf-8') as log:
+                        child = subprocess.Popen([sys.executable, '-m', 'backend.portal_workspace_host',
+                                                  '--root', str(workspace), '--runtime', str(runtime),
+                                                  '--workspace', user['workspace_id'], '--models', str(self.models),
+                                                  '--kind', 'library' if library else 'user'],
+                                                 cwd=Path(__file__).resolve().parents[1], env=environment,
+                                                 stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+                        self.children[user['workspace_id']] = child
                 finally:
-                    log.close()
+                    host_lease.release()
             deadline = time.monotonic() + self.timeout
             while time.monotonic() < deadline:
                 target = self._target(runtime)
@@ -176,6 +192,8 @@ class WorkspaceFleet:
             raise RuntimeError('工作区仍在准备，请稍后重试')
 
     def stop(self, user):
+        self.ready_checks.pop(user['workspace_id'], None)
+        self.provisioned.pop(user['workspace_id'], None)
         runtime = self.runtime(user)
         if not (runtime / 'host.json').exists():
             return
@@ -211,6 +229,9 @@ class WorkspaceFleet:
         if self.models.exists():
             return json.loads(self.models.read_text(encoding='utf-8'))
         return {'base_url': '', 'model': '', 'provider_name': '管理员配置的模型', 'context_tokens': None, 'max_output_tokens': None}
+
+    def close(self):
+        self.probes.close()
 
     def save_settings(self, value):
         save_private_json(self.models, value)
