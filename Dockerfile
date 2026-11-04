@@ -8,6 +8,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY index.html tsconfig.json vite.config.ts ./
 COPY src ./src
+COPY electron/preload.d.ts ./electron/preload.d.ts
 RUN npm run build:ui
 
 FROM python:3.12-slim-bookworm AS runtime
