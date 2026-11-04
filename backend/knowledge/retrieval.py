@@ -176,8 +176,10 @@ def _search(root,payload,trace,connection=None):
             # AND token search can miss classical segmentation; trigram / substring adds recall.
             begin=perf_counter()
             trace.data['active_stage']='normalized_substring'
+            escaped=values['normalized'].replace('\\','\\\\').replace('%','\\%').replace('_','\\_')
+            values['normalized_pattern']='%'+escaped+'%'
             substring=r.rows(connection,'SELECT '+fields+base+'WHERE '+where+' AND c.index_id=e.active_index '
-                          'AND strpos(c.normalized,:normalized)>0 ORDER BY e.id,b.ordinal,c.start_offset LIMIT :n',**values)
+                          'AND c.normalized LIKE :normalized_pattern ORDER BY e.id,b.ordinal,c.start_offset LIMIT :n',**values)
             lists.append(('normalized_substring',substring))
             trace.stage('normalized_substring',begin,candidates=len(substring),candidate_limit=values['n'],possibly_truncated=len(substring)==values['n'])
         available=[item for item in snapshot if item['model_key'] and item['index_state']=='ready']
@@ -233,6 +235,7 @@ def _search(root,payload,trace,connection=None):
                         # bitmap scan and sort millions of chunks instead of the vector index.
                         values['scope_indexes']=[str(item['index_id']) for item in available if item['index_id']]
                         values['vector_limit']=max(values['n']*4,values['n']+20)
+                        values['dimensions']=dimensions
                         semantic=r.rows(connection,
                             'WITH nearest AS MATERIALIZED (SELECT c.id FROM kb_chunks c '
                             'WHERE c.index_id=ANY(CAST(:scope_indexes AS uuid[])) AND c.embedding IS NOT NULL '
