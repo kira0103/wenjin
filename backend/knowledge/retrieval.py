@@ -228,9 +228,23 @@ def _search(root,payload,trace,connection=None):
                         r.execute(connection,'SET LOCAL hnsw.ef_search=120')
                         dimensions=len(vectors[0]);cast_type='vector' if dimensions<=2000 else 'halfvec'
                         distance=f'c.embedding::{cast_type}({dimensions}) <=> CAST(:vector AS {cast_type}({dimensions}))' if dimensions in {384,512,768,1024,1536,2048,3072} else 'c.embedding <=> CAST(:vector AS vector)'
-                        semantic=r.rows(connection,'SELECT '+fields+',1-(c.embedding <=> CAST(:vector AS vector)) semantic_score'+base+'JOIN kb_indexes i ON i.id=c.index_id WHERE '+where+
-                                      ' AND c.index_id=e.active_index AND i.model_key=:model_key AND c.embedding IS NOT NULL '
-                                      f'AND vector_dims(c.embedding)={dimensions} ORDER BY '+distance+',e.id,b.ordinal,c.start_offset LIMIT :n',**values)
+                        # HNSW must order the nearest chunks before the relational joins.
+                        # Ordering after joining blocks/editions makes PostgreSQL choose a
+                        # bitmap scan and sort millions of chunks instead of the vector index.
+                        values['scope_indexes']=[str(item['index_id']) for item in available if item['index_id']]
+                        values['vector_limit']=max(values['n']*4,values['n']+20)
+                        semantic=r.rows(connection,
+                            'WITH nearest AS MATERIALIZED (SELECT c.id FROM kb_chunks c '
+                            'WHERE c.index_id=ANY(CAST(:scope_indexes AS uuid[])) AND c.embedding IS NOT NULL '
+                            'AND vector_dims(c.embedding)=:dimensions ORDER BY '+distance+' LIMIT :vector_limit) '
+                            'SELECT '+fields+',1-(c.embedding <=> CAST(:vector AS vector)) semantic_score '
+                            'FROM nearest nc JOIN kb_chunks c ON c.id=nc.id '
+                            'JOIN kb_blocks b ON b.id=c.block_id JOIN kb_revisions rev ON rev.id=b.revision_id '
+                            'JOIN kb_editions e ON e.id=rev.edition_id JOIN kb_works w ON w.id=e.work_id '
+                            'JOIN kb_indexes i ON i.id=c.index_id WHERE '+where+
+                            ' AND c.index_id=e.active_index AND i.model_key=:model_key '
+                            'AND c.embedding IS NOT NULL AND vector_dims(c.embedding)=:dimensions '
+                            'ORDER BY '+distance+',e.id,b.ordinal,c.start_offset LIMIT :n',**values)
                         before=len(semantic)
                         if options['semantic_min_score'] is not None:semantic=[item for item in semantic if item['semantic_score']>=options['semantic_min_score']]
                         lists.append(('semantic',semantic))
