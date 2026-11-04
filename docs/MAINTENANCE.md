@@ -96,6 +96,26 @@ $env:SHIXUE_KB_DATABASE_URL = 'postgresql+psycopg://shixue_app:<密码>@127.0.0.
 
 Linux 使用 `python -m backend.portal` 启动，通过 HTTPS 同源反向代理提供网页和 `/api`。调整 [门户 systemd 示例](../deployment/server/wenjin-portal.service.example) 的账号、目录和受限环境文件。示例使用 `KillMode=process`，门户重启时保留工作区宿主和后台任务。
 
+### WSL2 + Docker 局域网部署
+
+本机已在 WSL2 Ubuntu 22.04 + Docker Desktop 下验证：WSL ext4 位于 E:，Docker 容器可通过 NVIDIA runtime 使用 RTX 4070 Ti；项目源码位于 `/root/wenjin`，数据位于 `/root/wenjin-data`。数据目录必须放在 WSL ext4，不要放在 `/mnt/c`，否则数据库 IO 和权限都不可靠。
+
+```bash
+# 在 WSL Ubuntu 中
+cd /root/wenjin
+git pull --ff-only
+cp .env.linux.example .env      # 修改两个密码；管理员密码至少 12 位
+docker compose -f compose.linux.yml build
+docker compose -f compose.linux.yml up -d
+docker compose -f compose.linux.yml logs -f app
+```
+
+首次启动时 `docker/entrypoint.sh` 用 `.env` 中的 `SHIXUE_PORTAL_ADMIN_PASSWORD` 建立管理员；之后修改 `.env` 不会覆盖已有密码。默认只发布到宿主机 `18765`，避免与 Windows 本机的 `8765` 冲突；确认迁移完成后再改为 `8765` 或由反向代理转发。容器内 `/data` 挂载到 `${WENJIN_DATA_DIR}/portal`，PostgreSQL 数据挂载到 `${WENJIN_DATA_DIR}/pgdata`，两者都在 WSL ext4。
+
+源码构建使用 Node 阶段生成 `dist`，运行阶段安装 Python 依赖和隔离的 GPU runtime；镜像不包含 `.local`、模型、数据库或审查附件。迁移数据时，先正常停止 Windows 后台，导出 PostgreSQL 并把 `private/`、`shared-library/`、`workspaces/` 复制到 `/root/wenjin-data/portal`，再启动容器；恢复前应保留 Windows 原目录和数据库备份。不要直接复制 Windows 的 `.managed-postgres` 目录到 Linux。
+
+局域网访问还需要在 Windows 防火墙放行 `18765`（或最终反向代理端口），并建议用 Caddy/Traefik 终止 HTTPS；直接 HTTP 只适合临时验证。WSL 和 Docker Desktop 必须随 Windows 开机启动，且 Windows 不能休眠，才能保证持续运行。
+
 ## 个人服务部署
 
 这一模式服务于一个工作区所有者，可同时连接浏览器与 Electron 薄客户端。先准备外部数据库、升级结构，再让 API 与 Worker 使用同一个资料目录和同一套环境。
