@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check } from 'lucide-react';
-import { Modal } from './Pages';
+import { Modal, useBodyScrollLock } from './Pages';
 import {isAppDialogOpen} from './dialogQueue';
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** 抽屉/弹窗共用：Esc 关闭、Tab 焦点圈、打开前记录焦点、关闭后恢复、锁定页面滚动。 */
+/** 抽屉/弹窗共用：Esc 关闭、Tab 焦点圈、打开前记录焦点、关闭后恢复。背景滚动锁由 useBodyScrollLock 统一处理。 */
 function useDialogFocus(onClose: () => void, panel: React.RefObject<HTMLElement | null>) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     const focusables = () => panel.current ? Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(item => item.offsetParent !== null) : [];
     const frame = requestAnimationFrame(() => { (focusables()[0] ?? panel.current)?.focus(); });
     const onKey = (event: KeyboardEvent) => {
@@ -30,7 +28,6 @@ function useDialogFocus(onClose: () => void, panel: React.RefObject<HTMLElement 
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener('keydown', onKey, true);
-      document.body.style.overflow = overflow;
       previous?.focus();
     };
   }, [panel]);
@@ -38,11 +35,12 @@ function useDialogFocus(onClose: () => void, panel: React.RefObject<HTMLElement 
 
 /**
  * 右侧抽屉：查看/轻编辑“当前对象”的细节，不离开当前页。
- * 用于材料信息、引用详情、任务日志、项目关联等；多步流程请用 Wizard，确认操作请用 Modal。
+ * 用于材料信息、引用详情、执行记录、项目关联等；多步流程请用 Wizard，确认操作请用 Modal。
  */
 export function Drawer({ title, onClose, children, footer, width = 440 }: { title: string; onClose(): void; children: ReactNode; footer?: ReactNode; width?: number }) {
   const panel = useRef<HTMLElement | null>(null);
   useDialogFocus(onClose, panel);
+  useBodyScrollLock();
   const style = { '--drawer-width': `${width}px` } as CSSProperties;
   const portal = document.querySelector('.portal-workspace,.portal-admin') ? ' portal-modal' : '';
   return createPortal(
@@ -74,7 +72,7 @@ export function Wizard({ title, steps, onClose, onFinish, finishLabel = '完成'
   }, [index]);
   return <Modal title={title} onClose={() => { if (!busy) onClose(); }}>
     <div className="wizard-progress" role="progressbar" aria-label="步骤进度" aria-valuemin={1} aria-valuemax={steps.length} aria-valuenow={index + 1}><i style={{ width: `${((index + 1) / steps.length) * 100}%` }} /></div>
-    <ol className="wizard-steps">{steps.map((item, stepIndex) => <li key={item.label} className={`wizard-step ${stepIndex === index ? 'is-active' : ''} ${stepIndex < index ? 'is-done' : ''}`} aria-current={stepIndex === index ? 'step' : undefined}><span>{stepIndex < index ? <Check size={14}/> : stepIndex + 1}</span>{item.label}</li>)}</ol>
+    <ol className="wizard-steps">{steps.map((item, stepIndex) => <li key={item.label} className={`wizard-step ${stepIndex === index ? 'is-active' : ''} ${stepIndex < index ? 'is-done' : ''}`} aria-current={stepIndex === index ? 'step' : undefined}><span>{stepIndex < index ? <Check size={16}/> : stepIndex + 1}</span>{item.label}</li>)}</ol>
     <div className="wizard-body" ref={bodyRef}>{step.content}</div>
     {error && <p className="inline-error" role="alert">{error}</p>}
     <div className="modal-actions">

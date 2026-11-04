@@ -46,7 +46,7 @@ export default function KnowledgeSettings() {
     finally { setBusy(false); }
   }
   return <div className="page-container knowledge-settings"><div className="settings-card">
-    <div className="settings-card-heading"><Database size={19} /><div><strong>文献库数据库</strong>
+    <div className="settings-card-heading"><Database size={18} /><div><strong>文献库数据库</strong>
       <span>连接 PostgreSQL，保存文献与研究知识。</span></div></div>
     {!settings ? <><p className="scope-note">{error || '正在读取连接设置…'}</p>
       {error && <button className="button-secondary" onClick={() => setRevision(r => r + 1)}>重新读取</button>}</> :

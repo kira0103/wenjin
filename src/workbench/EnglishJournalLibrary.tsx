@@ -1,7 +1,7 @@
 import JournalSourceDetails from './JournalSourceDetails';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, RotateCcw, Search } from 'lucide-react';
-import { request } from './api';
+import { call } from './transport';
 import './english-journals.css';
 
 type SortKey = 'if' | 'cas' | 'jcr' | 'xr' | 'name';
@@ -48,7 +48,6 @@ export type EnglishJournalResponse = {
 };
 
 
-const VERSION_NOTE = 'JCR 2025（Clarivate 2025 版，2026 年 6 月发布）· 中科院 2025 大类分区 · 新锐 2026';
 const PAGE_SIZES: number[] = [20, 50, 100];
 const JCR_TIERS = ['Q1', 'Q2', 'Q3', 'Q4'];
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -79,9 +78,9 @@ const jcrClass = (quarter: string) => (JCR_TIERS.includes(quarter) ? `ej-tier-${
 const tierText = (tier: number | null) => (tier === 1 || tier === 2 || tier === 3 || tier === 4 ? `${tier} 区` : '未收录');
 const text = (value: string | null | undefined) => (typeof value === 'string' ? value.trim() : '');
 const errorHint = (detail: string) => {
-  if (detail.includes('缺失')) return '英文期刊库数据文件缺失：请确认后端已放置 data/english_journals.json.gz，并重启本地服务后重试。';
-  if (detail.includes('503')) return '本地服务暂时不可用（503），请稍后重试。';
-  return '请确认本地服务正在运行，然后重试。';
+  if (/503|不可用|connection|连接/i.test(detail)) return '资料服务暂时不可用，请稍后重试';
+  if (/缺失|json|数据文件/.test(detail)) return '期刊数据未能加载，请稍后重试';
+  return '请稍后重试；持续失败时请联系管理员';
 };
 
 export default function EnglishJournalLibrary({endpoint='/api/submissions/english-journals'}:{endpoint?:string}) {
@@ -131,7 +130,7 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
     params.set('page', String(page));
     params.set('page_size', String(pageSize));
     setLoading(true);
-    request<EnglishJournalResponse>(`${endpoint}?${params.toString()}`)
+    call<EnglishJournalResponse>({ path: `${endpoint}?${params.toString()}`, silent: true })
       .then(result => {
         // 旧响应（防抖/翻页/筛选竞态）一律丢弃。
         if (!active || sequence.current !== current) return;
@@ -185,7 +184,7 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
 
   return <section className="english-journals" aria-label="英文期刊库">
     <div className="ej-filters" role="group" aria-label="英文期刊筛选">
-      <label className="ej-search"><Search size={15} aria-hidden="true" />
+      <label className="ej-search"><Search size={16} aria-hidden="true" />
         <input aria-label="搜索英文期刊刊名或 ISSN" placeholder="搜索刊名或 ISSN" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} />
       </label>
       <label className="ej-field">学科<select aria-label="按学科筛选" value={discipline} onChange={event => change(() => setDiscipline(event.target.value))}>
@@ -211,14 +210,15 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
       <label className="ej-field">排序<select aria-label="排序方式" value={sort} onChange={event => change(() => setSort(event.target.value as SortKey))}>
         {SORT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select></label>
-      <button type="button" className="button-secondary ej-reset" aria-label="重置筛选" onClick={reset}><RotateCcw size={14} aria-hidden="true"/>重置</button>
-      <p className="ej-stats" role="status" aria-live="polite"><span>命中 <strong>{data?formatCount(data.total):'—'}</strong> 种 · 第 {shownPage} / {shownPages} 页{loading&&<span className="ej-loading">正在更新…</span>}</span></p>
-      {data&&<JournalSourceDetails><p>{VERSION_NOTE}</p><p>{data.meta.label} · 共 {formatCount(data.meta.count)} 种 · 生成于 {data.meta.generated_at}</p>{Object.entries(data.meta.sources).map(([key,value])=><p key={key}>{value}</p>)}{data.meta.notes.map((note,index)=><p key={index}>{note}</p>)}<p>分区与 IF 仅作投稿参考，投稿前请核对期刊当前收录状态与要求。</p></JournalSourceDetails>}
+      <button type="button" className="button-secondary ej-reset" aria-label="重置筛选" onClick={reset}><RotateCcw size={16} aria-hidden="true"/>重置</button>
+      <p className="ej-stats" role="status" aria-live="polite"><span>{hasFilter?'筛选后':'共'} <strong>{data?formatCount(data.total):'—'}</strong> 种{loading&&<span className="ej-loading">正在更新…</span>}</span></p>
+      {data&&<JournalSourceDetails><p>{data.meta.label} · 共 {formatCount(data.meta.count)} 种 · 生成于 {data.meta.generated_at}</p>{Object.entries(data.meta.sources).map(([key,value])=><p key={key}>{value}</p>)}{data.meta.notes.map((note,index)=><p key={index}>{note}</p>)}<p>分区与 IF 仅作投稿参考，投稿前请核对期刊当前收录状态与要求</p></JournalSourceDetails>}
     </div>
 
     {error && <div role="alert" className="scope-warning ej-error">
-      <strong>{error}</strong>
+      <strong>期刊数据未能加载</strong>
       <span>{errorHint(error)}</span>
+      <details className="ej-error-detail"><summary>错误详情</summary><p>{error}</p></details>
       <button type="button" className="button-secondary" onClick={() => setReload(value => value + 1)}>重试</button>
     </div>}
 
@@ -236,7 +236,7 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
             <th scope="col">新锐 2026</th><th scope="col">收录</th><th scope="col">预警</th><th scope="col">操作</th>
           </tr></thead>
           <tbody>
-            {rows.length === 0 && <tr><td className="ej-empty" colSpan={8}>{hasFilter ? '没有符合筛选条件的期刊。可放宽分区条件，或点“重置筛选”。' : '英文期刊库暂无数据。'}</td></tr>}
+            {rows.length === 0 && <tr><td className="ej-empty" colSpan={8}>{hasFilter ? <><span>暂无匹配期刊</span><button type="button" className="button-secondary" onClick={reset}>重置筛选</button></> : '暂无英文期刊数据'}</td></tr>}
             {rows.map(item => <JournalRow key={item.id} item={item} expanded={expanded.includes(item.id)} onToggle={toggleRow} />)}
           </tbody>
         </table>
@@ -249,7 +249,6 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
       <label className="ej-field">每页<select aria-label="每页条数" value={pageSize} onChange={event => change(() => setPageSize(Number(event.target.value)))}>
         {PAGE_SIZES.map(size => <option key={size} value={size}>{size} 条</option>)}
       </select></label>
-      {data.meta.count > 0 && <span className="ej-library-total">库内 {formatCount(data.meta.count)} 种</span>}
     </div>}
 
 
@@ -279,7 +278,7 @@ function JournalRowBase({ item, expanded, onToggle }: { item: EnglishJournal; ex
   ].filter(Boolean);
 
   return <>
-    <tr className={expanded ? 'ej-row is-open' : 'ej-row'} aria-selected={expanded} onClick={() => onToggle(item.id)}>
+    <tr className={expanded ? 'ej-row is-open' : 'ej-row'}>
       <td className="ej-journal">
         <strong title={item.name}>{item.name}</strong>
         <small>ISSN {text(item.issn) || '未提供'}</small>
@@ -304,8 +303,8 @@ function JournalRowBase({ item, expanded, onToggle }: { item: EnglishJournal; ex
         {warnings.map(entry => <span key={entry.label} className={entry.warn ? 'ej-flag is-warn' : 'ej-flag'} title={entry.label}>{entry.label}</span>)}
       </td>
       <td className="ej-actions">
-        <button type="button" className="button-quiet" aria-expanded={expanded} aria-controls={detailId} onClick={event => { event.stopPropagation(); onToggle(item.id); }}>
-          {expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}详情
+        <button type="button" className="button-quiet" aria-expanded={expanded} aria-controls={detailId} onClick={() => onToggle(item.id)}>
+          {expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}详情
         </button>
       </td>
     </tr>

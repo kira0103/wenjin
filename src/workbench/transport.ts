@@ -1,7 +1,8 @@
 import {ApiError,operationName,reportFailure,statusAction} from './errors';
 import { currentStorageAccount } from './storage';
 
-export type ApiRequest = { path: string; method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: unknown; contentType?: string; timeoutMs?: number };
+/** `silent`：页面已在本地展示该错误时，要求 transport 不再派发全局错误浮层。 */
+export type ApiRequest = { path: string; method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: unknown; contentType?: string; timeoutMs?: number; silent?: boolean };
 export type ApiResponse = { status: number; contentType: string; body: any };
 let libraryAdmin = false;
 let systemLibrary = false;
@@ -60,8 +61,10 @@ export async function call<T>(request: ApiRequest): Promise<T> {
     }
     return result.body as T;
   }catch(error){
-    const failure=error instanceof ApiError?error:new ApiError({message:timedOut?'请求超时，后台未能及时响应':error instanceof SyntaxError?'后台返回的数据格式异常':'无法连接后台服务，请检查服务是否启动及网络连接',action:statusAction(503,request.method),operation:operationName(request.path,request.method),code:timedOut?'REQUEST_TIMEOUT':'CONNECTION_ERROR'});
-    if(failure.notice.status!==401)reportFailure(failure.notice);
+    const failure=error instanceof ApiError?error:new ApiError({message:timedOut?'请求超时，后台未能及时响应':error instanceof SyntaxError?'后台返回的数据格式异常':'无法连接后台服务，请检查资料服务是否启动及网络连接',action:statusAction(503,request.method),operation:operationName(request.path,request.method),code:timedOut?'REQUEST_TIMEOUT':'CONNECTION_ERROR'});
+    // 页内错误优先：4xx 由页面就地展示；全局出口只接未捕获异常、网络/超时和 5xx。
+    const status=failure.notice.status;
+    if(!request.silent&&status!==401&&(status===undefined||status>=500))reportFailure(failure.notice);
     throw failure;
   }finally{clearTimeout(timer);}
 }

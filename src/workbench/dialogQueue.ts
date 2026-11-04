@@ -30,4 +30,4 @@ export const appDialogQueue=new DialogQueue();
 export const isAppDialogOpen=()=>appDialogQueue.snapshot()!==null;
 export async function confirmDialog(options:DialogOptions){return await appDialogQueue.request('confirm',options)===true;}
 export async function inputDialog(options:TextDialogOptions){const result=await appDialogQueue.request('input',options);return typeof result==='string'?result:null;}
-export function confirmDiscard(description:ReactNode='尚未保存的修改会被丢弃。'){return confirmDialog({title:'放弃未保存的修改？',description,confirmLabel:'放弃修改',cancelLabel:'继续编辑',tone:'danger'});}
+export function confirmDiscard(description:ReactNode='离开后本次填写不会保存，已记录的信息不受影响'){return confirmDialog({title:'放弃未保存的修改？',description,confirmLabel:'放弃修改',cancelLabel:'继续编辑',tone:'danger'});}

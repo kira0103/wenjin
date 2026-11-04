@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { batchApi, type Batch } from './batchApi';
 import { Modal } from './Pages';
+import { timeLabel } from './viewState';
 
 export type DeletePreview = { id: string; name: string; created_at?: string; counts: Record<string, number>; can_delete: boolean; preview_token: string };
 
@@ -22,7 +23,7 @@ export function DeleteBatchButton({ batch, onDeleted, disabled = false }: { batc
   return <><button className="button-quiet delete-record" disabled={disabled || busy || active} title={active ? '先停止批次并等待在途请求结束后删除' : '删除批次记录，已保存稿件保留'} onClick={() => { setBusy(true); setError(''); setConfirmed(false); void batchApi.deletePreview(batch.id).then(setPreview).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>删除批次</button>
     {!preview && error && <span className="inline-error">{error}</span>}
     {preview && <Modal title="确认删除执行批次" onClose={() => { if (!busy) setPreview(null); }}>
-      <p>{preview.name} · {preview.created_at && new Date(preview.created_at).toLocaleString('zh-CN')} · {preview.counts.files} 份文件</p>
+      <p>{preview.name} · {preview.created_at && timeLabel(preview.created_at)} · {preview.counts.files} 份文件</p>
       <p>删除该批次的 {preview.counts.attempts} 次调用记录、用量、日志与片段缓存。已保存的卷稿、校记和文献库原文件保留。</p>
       {!!preview.counts.candidates && <p className="prep-notice">还有 {preview.counts.candidates} 份未合并候选稿保存在此批次中，也会被删除，请先导出需要保留的候选稿。</p>}
       <p>删除后不能通过此批次断点继续。删除前会备份数据库。</p>
