@@ -1,0 +1,54 @@
+name: wenjin
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.7-pg17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: shixue_knowledge
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TZ: Asia/Shanghai
+    volumes:
+      - ${WENJIN_DATA_DIR:-/root/wenjin-data}/pgdata:/var/lib/postgresql/data
+    shm_size: 1gb
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d shixue_knowledge']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    stop_grace_period: 2m
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wenjin:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '${WENJIN_PORT:-18765}:8765'
+    environment:
+      SHIXUE_PORTAL_PG_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/postgres
+      SHIXUE_PORTAL_ADMIN_PASSWORD: ${SHIXUE_PORTAL_ADMIN_PASSWORD:?set SHIXUE_PORTAL_ADMIN_PASSWORD in .env}
+      SHIXUE_PORTAL_ADMIN_USERNAME: ${SHIXUE_PORTAL_ADMIN_USERNAME:-admin}
+      SHIXUE_MODEL_API_KEY: ${SHIXUE_MODEL_API_KEY:-}
+      SHIXUE_EMBEDDING_DEVICE: cuda
+      SHIXUE_GPU_RUNTIME: /opt/gpu-runtime
+      SHIXUE_INGEST_CONCURRENCY: '4'
+      SHIXUE_EMBED_PREFETCH: '4'
+      SHIXUE_EMBED_WORKERS: '2'
+      SHIXUE_EMBED_INFLIGHT: '2'
+      TZ: Asia/Shanghai
+    volumes:
+      - ${WENJIN_DATA_DIR:-/root/wenjin-data}/portal:/data
+    shm_size: 2gb
+    stop_grace_period: 5m
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:8765/health >/dev/null']
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    gpus: all
