@@ -5,7 +5,8 @@ FROM node:22-bookworm-slim AS web
 WORKDIR /src
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund \
+    && npm install --no-save --package-lock=false --no-audit --no-fund @rollup/rollup-linux-x64-gnu@4.63.5
 COPY index.html tsconfig.json vite.config.ts ./
 COPY src ./src
 COPY electron/preload.d.ts ./electron/preload.d.ts
