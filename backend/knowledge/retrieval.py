@@ -133,9 +133,18 @@ def _search(root,payload,trace,connection=None):
         values['n']=max(limit,options['recall_candidates'])
         trace.payload={**payload,'mode':mode,'limit':limit,'retrieval':options}
         trace.data.update(retrieval_settings_version=saved['version'],retrieval=options,requested_mode=requested_mode,effective_mode=mode)
-        snapshot=r.rows(connection,'SELECT DISTINCT e.id edition_id,b.revision_id,e.active_index index_id,i.model_key,i.state index_state,i.config '
-                        'FROM kb_blocks b JOIN kb_revisions rev ON rev.id=b.revision_id JOIN kb_editions e ON e.id=rev.edition_id '
-                        'LEFT JOIN kb_indexes i ON i.id=e.active_index WHERE '+where+' ORDER BY e.id',**values)
+        scope_base='NOT e.deleted AND e.active_revision=b.revision_id'
+        # Most scopes contain no block-level predicate. Enumerating editions
+        # directly avoids sorting every active block just to DISTINCT the same
+        # edition rows; block-level scopes keep the original join.
+        if scope_base in where and not re.search(r'(?<![A-Za-z0-9_])b\.',where.replace(scope_base,'',1)):
+            edition_where=where.replace(scope_base,'NOT e.deleted AND e.active_revision IS NOT NULL',1)
+            snapshot=r.rows(connection,'SELECT e.id edition_id,e.active_revision revision_id,e.active_index index_id,i.model_key,i.state index_state,i.config '
+                            'FROM kb_editions e LEFT JOIN kb_indexes i ON i.id=e.active_index WHERE '+edition_where+' ORDER BY e.id',**values)
+        else:
+            snapshot=r.rows(connection,'SELECT DISTINCT e.id edition_id,b.revision_id,e.active_index index_id,i.model_key,i.state index_state,i.config '
+                            'FROM kb_blocks b JOIN kb_revisions rev ON rev.id=b.revision_id JOIN kb_editions e ON e.id=rev.edition_id '
+                            'LEFT JOIN kb_indexes i ON i.id=e.active_index WHERE '+where+' ORDER BY e.id',**values)
         trace.snapshot=[{key:str(item[key]) if key in {'edition_id','revision_id','index_id'} and item[key] is not None else item[key]
                          for key in item} for item in snapshot]
         trace.stage('scope',begin,edition_count=len(snapshot),scope=scope,include_commentary=payload.get('include_commentary',True))
