@@ -54,6 +54,11 @@
     "vitest": "^2.1.8",
     "wait-on": "^8.0.1"
   },
+  "overrides": {
+    "@babel/generator": "7.29.12",
+    "@jridgewell/gen-mapping": "0.3.13",
+    "@jridgewell/trace-mapping": "0.3.31"
+  },
   "build": {
     "appId": "cn.shixue.workbench",
     "productName": "史学工作台",
