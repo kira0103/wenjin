@@ -1,7 +1,9 @@
+import {isAppDialogOpen} from './dialogQueue';
+import PageHeading from './PageHeading';
 import UserLibrary from '../portal/UserLibrary';
 import { workspaceStorage as localStorage } from './storage';
 import { platform } from './platform';
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { BookMarked, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Check, ChevronDown, ChevronRight, CircleAlert, Command, FileText, FolderKanban, History, Layers3, LibraryBig, LoaderCircle, Plus, Search, Settings2, ShieldCheck, X, type LucideIcon } from 'lucide-react';
 import { api, request, type MaterialRole, type Project, type Bootstrap, type MaterialDetail, type ModelSettings, type SourceContext, type TaskArtifact, type TaskKind, type WorkArtifact, type WorkTask, taskNames } from './api';
 import { materialView, readSession, saveSession, searchMaterials, sourceInfo, type MaterialView } from './viewState';
@@ -23,14 +25,20 @@ import AccountSettings from '../portal/AccountSettings';
 import type { PortalUser } from '../portal/types';
 import {applyTheme,readTheme,saveTheme,readLayout,saveLayout} from './appearance';
 
-type Page = 'research-assistant' | 'submissions' | 'knowledge' | 'collation-debug' | 'collation-batch' | 'volume-preparation' | 'global-library' | 'project-materials' | 'research' | 'home' | 'library' | 'materials' | 'tasks' | 'artifacts' | 'settings';
-const titles: Record<Page, string> = { 'research-assistant': '研究助手', submissions: '论文投稿管理', knowledge: '文献库', 'collation-debug': '点校调试', 'collation-batch': '批量点校', 'volume-preparation': '准备卷文本', 'global-library': '文献库', 'project-materials': '项目材料', research: '研究工作', home: '项目概览', library: '文献库', materials: '材料阅读', tasks: '任务记录', artifacts: '工作成果', settings: '模型与设置' };
+type Page = 'research-assistant' | 'submissions' | 'knowledge' | 'collation-debug' | 'collation-batch' | 'volume-preparation' | 'global-library' | 'project-materials' | 'research' | 'home' | 'library' | 'materials' | 'tasks' | 'artifacts' | 'settings' | 'management';
+const titles: Record<Page, string> = { management: '管理台', 'research-assistant': '研究助手', submissions: '论文投稿管理', knowledge: '文献库', 'collation-debug': '点校调试', 'collation-batch': '批量点校', 'volume-preparation': '准备卷文本', 'global-library': '文献库', 'project-materials': '项目材料', research: '研究工作', home: '项目概览', library: '文献库', materials: '材料阅读', tasks: '执行记录', artifacts: '工作成果', settings: '模型与设置' };
 function errorText(error: unknown) { return error instanceof Error ? error.message : '操作失败，请重试'; }
+const PAGE_IDS = Object.keys(titles) as Page[];
+function routeFromHash(): { page: Page; detail: string | null } | null { try { const match = /^#\/([a-z-]+)(?:\/([^/]+))?$/.exec(window.location.hash); if (!match || !PAGE_IDS.includes(match[1] as Page)) return null; return { page: match[1] as Page, detail: match[2] ? decodeURIComponent(match[2]) : null }; } catch { return null; } }
+function detailFromHash(page: Page): string | null { const route = routeFromHash(); return route?.page === page ? route.detail : null; }
+function routeHash(page: Page, detail: string | null): string { return detail ? `#/${page}/${encodeURIComponent(detail)}` : `#/${page}`; }
+function writePageHash(page: Page, replace = false): void { try { const value = `#/${page}`; if (window.location.hash === value) return; if (replace) window.history.replaceState(null, '', value); else window.history.pushState(null, '', value); } catch { /* 不支持 History 的环境忽略 */ } }
 
 export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogout?:()=>Promise<void>}={}) {
   const [session, setSession] = useState(readSession);
   const projectId = session.projectId;
-  const [page, setPageState] = useState<Page>(() => { const saved = session.pageByProject?.[session.projectId] as Page; return saved==='research-assistant'?'home':saved in titles?saved:'home'; });
+  const [page, setPageState] = useState<Page>(() => { const route = routeFromHash(); if (route && (route.page !== 'management' || !portalUser)) return route.page; const saved = session.pageByProject?.[session.projectId] as Page; const initial = saved === 'management' && portalUser ? 'home' : saved; return initial==='research-assistant'?'home':initial in titles?initial:'home'; });
+  const [managementTab,setManagementTab]=useState<'assistants'|'retrieval'|'catalog'>('assistants');
   const [theme,setTheme]=useState(readTheme),[layout,setLayout]=useState(readLayout),[viewport,setViewport]=useState(innerWidth),[globalAssistant,setGlobalAssistant]=useState(false);
   useEffect(()=>{applyTheme(theme);const match=matchMedia('(prefers-color-scheme: dark)'),sync=()=>{if(theme==='system')applyTheme(theme);};match.addEventListener('change',sync);return()=>match.removeEventListener('change',sync);},[theme]);
   useEffect(()=>{saveLayout(layout);},[layout]);
@@ -41,19 +49,21 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
   const [data, setData] = useState<Bootstrap | null>(null);
   const [startup,setStartup]=useState({stage:'starting',message:'正在启动资料服务',elapsed:0});
   useEffect(()=>{if(data||!platform.serviceStatus)return;let live=true;const check=()=>void platform.serviceStatus!().then(value=>{if(live)setStartup(value);}).catch(()=>{});check();const timer=setInterval(check,500);return()=>{live=false;clearInterval(timer);};},[!!data]);
-  const [selectedId, setSelectedId] = useState<string | null>(session.selectedByProject[projectId] || null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => (detailFromHash('materials') ?? session.selectedByProject[projectId]) || null);
   const [detail, setDetail] = useState<MaterialDetail | null>(null);
   const [detailError, setDetailError] = useState('');
   const [detailRevision, setDetailRevision] = useState(0);
 
   const [taskCache, setTaskCache] = useState<Record<string, WorkTask>>({});
   const [taskRevision, setTaskRevision] = useState(0);
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
-  const [artifactId, setArtifactId] = useState<string | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(() => detailFromHash('tasks'));
+  const [artifactId, setArtifactId] = useState<string | null>(() => detailFromHash('artifacts'));
   const [, setFilter] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState('');
+  const [toastPaused, setToastPaused] = useState(false);
+  const toastSuccess = /已|成功|完成|保存|复制|导出/.test(toast) && !/失败|错误|异常|无法|不可/.test(toast);
   const [serviceError, setServiceError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -68,19 +78,19 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
   const [projectName, setProjectName] = useState('');
   const [projectType, setProjectType] = useState<Project['project_type']>('general');
   const [projectConfigOpen, setProjectConfigOpen] = useState(false);
-  const [unitId, setUnitId] = useState<string | null>(session.unitByProject?.[session.projectId] || null);
+  const [unitId, setUnitId] = useState<string | null>(() => (detailFromHash('research') ?? session.unitByProject?.[session.projectId]) || null);
   const [batchRun, setBatchRun] = useState<string | undefined>();
   const settingsReturn = useRef<Page>(page === 'settings' ? 'home' : page);
   const debugReturn = useRef<Page>(page === 'collation-debug' ? 'collation-batch' : page);
   const [debugAttempt, setDebugAttempt] = useState<string | undefined>();
-  const [globalReaderId, setGlobalReaderId] = useState<string | null>(null);
+  const [globalReaderId, setGlobalReaderId] = useState<string | null>(() => detailFromHash('global-library'));
   const [globalSourceDetail,setGlobalSourceDetail]=useState<MaterialDetail|null>(null);
   const leaveWork = useRef<(() => Promise<boolean>) | null>(null);
   const navigationVersion = useRef(0);
   const registerLeave = useCallback((callback: (() => Promise<boolean>) | null) => { leaveWork.current = callback; }, []);
   const [creatingProject, setCreatingProject] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'model'|'data'|'assistants'|'retrieval'|'catalog'|'appearance'|'account'>(portalUser?'appearance':'model');
-  const settingsTabs:[typeof settingsSection,string][]=portalUser?[['appearance','外观'],['account','账号与安全']]:[['model','模型设置'],['appearance','外观'],['data','数据与备份'],['assistants','助手与 Skill'],['retrieval','检索设置'],['catalog','资料维护']];
+  const settingsTabs:[typeof settingsSection,string][]=portalUser?[['appearance','外观'],['account','账号与安全']]:[['model','模型设置'],['appearance','外观'],['data','数据与备份']];
   const [libraryReset,setLibraryReset]=useState(0);
   const [libraryIncoming, setLibraryIncoming] = useState<{id:string;asset?:string;page?:number}|null>(null);
   const clearLibraryIncoming = useCallback(() => setLibraryIncoming(null), []);
@@ -103,13 +113,17 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
   const artifacts = (data?.artifacts || []).filter(a => a.project_id === projectId);
   const material = materials.find(m => m.id === selectedId);
   const currentProject = data?.projects.find(p => p.id === projectId);
-  const assistantVisible=!!currentProject&&(compact?mobileAssistant:layout.rightOpen)&&(!['settings','submissions','knowledge','global-library','materials'].includes(page)||globalAssistant&&['knowledge','global-library','materials'].includes(page));
+  const assistantHiddenPages=portalUser?['settings','management','submissions','knowledge','global-library','materials','project-materials','home','tasks','artifacts','research','volume-preparation','collation-batch','collation-debug']:['settings','management','submissions','knowledge','global-library','materials'];
+  const assistantExplicitPages=portalUser?['knowledge','global-library','materials','project-materials','home','tasks','artifacts','research','volume-preparation','collation-batch','collation-debug']:['knowledge','global-library','materials'];
+  const assistantVisible=!!currentProject&&(compact?mobileAssistant:layout.rightOpen)&&(!assistantHiddenPages.includes(page)||globalAssistant&&assistantExplicitPages.includes(page));
+  useEffect(()=>{if(portalUser&&assistantHiddenPages.includes(page))setGlobalAssistant(false);},[page,portalUser]);
   const leftWidth=Math.min(layout.leftWidth,Math.max(184,viewport-(assistantVisible?320:0)-496));
   const rightMaximum=Math.max(320,viewport-(layout.leftOpen?leftWidth+8:0)-488);
   const rightWidth=Math.min(layout.rightWidth,rightMaximum);
   const gridStyle={'--left-width':layout.leftOpen?leftWidth+'px':'0px','--left-divider':layout.leftOpen?'8px':'0px','--right-width':assistantVisible?rightWidth+'px':'0px','--right-divider':assistantVisible?'8px':'0px'} as CSSProperties;
   function closeAssistant(){if(compact)setMobileAssistant(false);else setLayout(v=>({...v,rightOpen:false}));}
-  function openAssistant(){if(compact){setMobileAssistant(true);setMobileNav(false);}if(page==='settings'||page==='submissions')void navigate('home');setGlobalAssistant(true);setLayout(v=>({...v,rightOpen:true}));}
+  function openAssistant(){if(compact){setMobileAssistant(true);setMobileNav(false);}if(page==='settings'||page==='management'||page==='submissions')void navigate('home');setGlobalAssistant(true);setLayout(v=>({...v,rightOpen:true}));}
+  useEffect(()=>{if(page==='research'&&unitId)setLayout(v=>v.rightOpen?{...v,rightOpen:false}:v);},[page,unitId]);
   const view = materialView(selectedId ? session.views[`${projectId}:${selectedId}`] || session.views[selectedId] : undefined, material?.page_count || 1);
   const materialTasks = tasks.filter(t => t.material_id === selectedId);
   const taskId = view.taskId && materialTasks.some(t => t.id === view.taskId) ? view.taskId : materialTasks[0]?.id;
@@ -183,6 +197,7 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
 
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
+      if(isAppDialogOpen())return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setSearchOpen(v => !v); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && ['library', 'project-materials', 'global-library'].includes(page)) { event.preventDefault(); document.querySelector<HTMLInputElement>('.inline-search input')?.focus(); }
       if (event.key === 'Escape') { setSearchOpen(false); setProjectMenu(false); setMobileNav(false);setMobileAssistant(false); }
@@ -190,8 +205,24 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
     window.addEventListener('keydown', shortcut);
     return () => window.removeEventListener('keydown', shortcut);
   }, [page]);
+  useEffect(() => {
+    const onHash = () => {
+      const route = routeFromHash();
+      if (!route || (route.page === 'management' && portalUser)) return;
+      setPageState(route.page);
+      if (route.page === 'materials') setSelectedId(route.detail);
+      if (route.page === 'tasks') setOpenTaskId(route.detail);
+      if (route.page === 'artifacts') setArtifactId(route.detail);
+      if (route.page === 'global-library') setGlobalReaderId(route.detail);
+      if (route.page === 'research') setUnitId(route.detail);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [portalUser]);
+  const routeDetail = page === 'materials' ? selectedId : page === 'tasks' ? openTaskId : page === 'artifacts' ? artifactId : page === 'global-library' ? globalReaderId : page === 'research' ? unitId : null;
+  useEffect(() => { const target = routeHash(page, routeDetail); if (window.location.hash !== target) { try { window.history.replaceState(null, '', target); } catch { /* 不支持 History 的环境忽略 */ } } }, [page, routeDetail]);
   useEffect(() => { if (searchOpen) searchRef.current?.focus(); }, [searchOpen]);
-  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 6500); return () => window.clearTimeout(timer); }, [toast]);
+  useEffect(() => { if (!toast || toastPaused) return; const timer = window.setTimeout(() => setToast(''), 6500); return () => window.clearTimeout(timer); }, [toast, toastPaused]);
 
   function updateView(patch: Partial<MaterialView>, id = selectedId, pages = material?.page_count || 1) {
     if (!id) return;
@@ -203,7 +234,10 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
     if (leaveWork.current && !(await leaveWork.current())) return false;
     if (version !== navigationVersion.current) return false;
     if (target === 'settings' && page !== 'settings') {settingsReturn.current = page;if(portalUser)setSettingsSection('account');}
-    if(target==='materials'&&target!==page)setGlobalAssistant(false);setPageState(target); setMobileNav(false); return true;
+    if(target==='materials'&&target!==page)setGlobalAssistant(false);
+    if(target!==page&&assistantHiddenPages.includes(target))setGlobalAssistant(false);
+    if (target !== page) writePageHash(target);
+    setPageState(target); setMobileNav(false); return true;
   }
   async function changed() { await refresh(); setDetailRevision(v => v + 1); }
   async function openUnit(id?: string) { if (!(await navigate('research'))) return; setUnitId(id || null); }
@@ -243,8 +277,8 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
     const selected = materials.find(m => m.id === id);
     if (!selected) return;
     setSelectedId(id); navigate('materials'); setSearchOpen(false); setPendingTool(null);
-    if (tool === 'references') updateView({ tab: 'references', sideOpen: false }, id, selected.page_count);
-    else if (tool) updateView({ taskKind: tool, tab: 'reader', sideOpen: true }, id, selected.page_count);
+    if (tool === 'references') updateView({ sideOpen: false }, id, selected.page_count);
+    else if (tool) updateView({ taskKind: tool, sideOpen: true }, id, selected.page_count);
   }
   async function doImport(entryId?: string, destinationProject: string | null = projectId, role: MaterialRole = 'reference') {
     if (portalUser) { if(await navigate('global-library')){setGlobalReaderId(null);setLibraryScope('personal');setToast('在“我的文献库”导入资料，只有你可见。');} return; }
@@ -264,7 +298,7 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
       await changed();
       if (importProject === projectRef.current && latest) {
         setSelectedId(latest);
-        if (pendingTool) { const imported = await api.material(latest); updateView(pendingTool === 'references' ? { tab: 'references', sideOpen: false } : { taskKind: pendingTool, sideOpen: true }, latest, imported.page_count); setPendingTool(null); await navigate('materials'); }
+        if (pendingTool) { const imported = await api.material(latest); updateView(pendingTool === 'references' ? { sideOpen: false } : { taskKind: pendingTool, sideOpen: true }, latest, imported.page_count); setPendingTool(null); await navigate('materials'); }
         else await navigate('project-materials');
       }
       setToast(failures.length ? `已导入 ${count} 份；${failures.join('；')}` : `已保存 ${count} 份资料${importProject ? '并关联目标项目' : '到文献库'}`);
@@ -290,7 +324,7 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
       setTaskCache(cache => ({ ...cache, [created.id]: created }));
       updateView({ taskId: created.id, message: '', sideOpen: true }, runMaterial, material.page_count);
       if (projectRef.current === runProject) await refresh();
-      setToast(`${taskNames[view.taskKind]}任务已提交，可在任务记录中查看`);
+      setToast(`${taskNames[view.taskKind]}任务已提交，可在执行记录中查看`);
     } catch (error) { setToast(errorText(error)); }
     finally { setBusy(false); }
   }
@@ -331,7 +365,7 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
       if (!sourceProject) { if (await navigate('global-library')) setGlobalReaderId(source.id); return; }
       if (sourceProject !== projectId) await switchProject(sourceProject);
       setSelectedId(source.id); navigate('materials');
-      setSession(s => ({ ...s, selectedByProject: { ...s.selectedByProject, [sourceProject]: source.id }, views: { ...s.views, [`${sourceProject}:${source.id}`]: { ...materialView(s.views[`${sourceProject}:${source.id}`] || s.views[source.id], source.page_count), readerPage: context?.page_from || Number(/第\s*(\d+)/.exec(context?.selection || '')?.[1]) || 1, tab: 'reader' } } }));
+      setSession(s => ({ ...s, selectedByProject: { ...s.selectedByProject, [sourceProject]: source.id }, views: { ...s.views, [`${sourceProject}:${source.id}`]: { ...materialView(s.views[`${sourceProject}:${source.id}`] || s.views[source.id], source.page_count), readerPage: context?.page_from || Number(/第\s*(\d+)/.exec(context?.selection || '')?.[1]) || 1 } } }));
     } catch (error) { setToast(errorText(error)); }
   }
   async function exportArtifact(artifact: WorkArtifact | TaskArtifact) {
@@ -350,14 +384,22 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
       const next = await api.artifacts(task.project_id);
       if (projectRef.current !== task.project_id) return;
       const result = next.find(a => a.task_id === task.id);
-      if (!result) { setToast('此任务尚未生成成果，请在任务记录中查看状态'); return; }
+      if (!result) { setToast('此任务尚未生成成果，请在执行记录中查看状态'); return; }
       setData(current => current ? { ...current, artifacts: next } : current);
       openArtifactRecord(result);
     } catch (error) { setToast(errorText(error)); }
   }
 
+  function subnavKeys(event: ReactKeyboardEvent<HTMLElement>) {
+    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (index < 0) return;
+    const next = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? (index + 1) % buttons.length : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? (index + buttons.length - 1) % buttons.length : event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : -1;
+    if (next >= 0) { event.preventDefault(); buttons[next].focus(); buttons[next].click(); }
+  }
   return <div className={`app-shell ${portalUser?'portal-workspace':''}`} style={gridStyle}>
-    <header className="app-titlebar"><div className="titlebar-start"><button className="icon-btn" aria-label={(compact?mobileNav:layout.leftOpen)?'折叠导航':'展开导航'} aria-expanded={compact?mobileNav:layout.leftOpen} onClick={()=>{if(compact){setMobileNav(value=>!value);setMobileAssistant(false);}else setLayout(v=>({...v,leftOpen:!v.leftOpen}));}}>{layout.leftOpen?<PanelLeftClose size={18}/>:<PanelLeftOpen size={18}/>}</button><BookMarked size={17}/><span>{portalUser?'问津':'史学工作台'}</span>{portalUser&&<small className="workspace-wordmark">WENJIN</small>}</div><span className="titlebar-project">{currentProject?.name||'研究工作区'}</span><div className="titlebar-end">{portalUser&&<><button className="button-quiet portal-account-button" onClick={()=>{setSettingsSection('account');void navigate('settings');}}>{portalUser.display_name}</button>{portalUser.role==='admin'&&<a className="portal-admin-link" href="/admin/">管理后台</a>}</>}<button className="button-quiet" aria-label="研究助手" aria-expanded={assistantVisible} onClick={()=>{if(assistantVisible)closeAssistant();else openAssistant();}}>{assistantVisible?<PanelRightClose size={17}/>:<PanelRightOpen size={17}/>}<span>研究助手</span></button></div></header>
+    <a className="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); const main = document.getElementById('workspace-content'); main?.focus(); main?.scrollIntoView({ block: 'start' }); }}>跳到主内容</a>
+    <header className="app-titlebar"><div className="titlebar-start"><button className="icon-btn" aria-label={(compact?mobileNav:layout.leftOpen)?'折叠导航':'展开导航'} aria-expanded={compact?mobileNav:layout.leftOpen} onClick={()=>{if(compact){setMobileNav(value=>!value);setMobileAssistant(false);}else setLayout(v=>({...v,leftOpen:!v.leftOpen}));}}>{layout.leftOpen?<PanelLeftClose size={18}/>:<PanelLeftOpen size={18}/>}</button><BookMarked size={17}/><span>{portalUser?'问津':'史学工作台'}</span>{portalUser&&<small className="workspace-wordmark">WENJIN</small>}</div>{!portalUser&&<span className="titlebar-project">{currentProject?.name||'研究工作区'}</span>}<div className="titlebar-end">{portalUser&&<button className="search-trigger" aria-label="搜索当前项目材料" title="搜索当前项目材料（Ctrl K）" aria-expanded={searchOpen} onClick={()=>setSearchOpen(value=>!value)}><Search size={15}/><span>项目材料</span><kbd>Ctrl K</kbd></button>}{portalUser&&<><button className="button-quiet portal-account-button" onClick={()=>{setSettingsSection('account');void navigate('settings');}}>{portalUser.display_name}</button>{portalUser.role==='admin'&&<a className="portal-admin-link" href="/admin/">管理后台</a>}</>}<button className="button-quiet" aria-label="研究助手" aria-expanded={assistantVisible} onClick={()=>{if(assistantVisible)closeAssistant();else openAssistant();}}>{assistantVisible?<PanelRightClose size={17}/>:<PanelRightOpen size={17}/>}<span>研究助手</span></button></div></header>
     <aside className={`sidebar ${compact&&mobileNav?'is-open':''}`} aria-label="工作台导航" hidden={!compact&&!layout.leftOpen}>
 
       <div className="project-heading"><span>研究项目</span><button className="icon-btn subtle" aria-label="新建研究项目" onClick={() => setProjectDialog(true)}><Plus size={16} /></button></div>
@@ -367,16 +409,16 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
 
       <div className="sidebar-heading"><span>最近材料</span><button className="icon-btn subtle" aria-label={portalUser?'导入个人文献':'导入项目资料'} disabled={uploading} onClick={() => void doImport()}><Plus size={16} /></button></div>
       <div className="material-nav-list">{[...materials].sort((a, b) => Number(b.id === selectedId) - Number(a.id === selectedId)).slice(0, 8).map(m => <button key={m.id} title={m.title} aria-current={page === 'materials' && selectedId === m.id ? 'page' : undefined} className={`material-nav ${page === 'materials' && selectedId === m.id ? 'material-nav-active' : ''}`} onClick={() => selectMaterial(m.id)}><FileText size={15} /><span>{m.title}</span></button>)}{!materials.length && <div className="sidebar-empty">尚未添加材料</div>}<button className="sidebar-all button-quiet" onClick={() => { setFilter(''); void navigate('project-materials'); }}>查看项目材料 <ChevronRight size={14} /></button></div>
-      <div className="sidebar-bottom"><div className="storage-meter"><ShieldCheck size={16} /><div><strong>{portalUser?'个人工作区':data?.settings.service_mode==='server'?'服务端工作区':'本机工作区'}</strong><small>{portalUser?'系统文献共享，个人文献与研究独立保存':data?.settings.service_mode==='server'?'原件、工作稿与成果保存在资料服务中':'原件、工作稿与成果保存在本机'}</small></div></div><NavItem icon={Settings2} label={portalUser?'个人设置':'模型与设置'} active={page === 'settings'} onClick={() => navigate('settings')} /></div>
+      <div className="sidebar-bottom"><div className="storage-meter"><ShieldCheck size={16} /><div><strong>{portalUser?'个人工作区':data?.settings.service_mode==='server'?'服务端工作区':'本机工作区'}</strong><small>{portalUser?'系统文献共享，个人文献与研究独立保存':data?.settings.service_mode==='server'?'原件、工作稿与成果保存在资料服务中':'原件、工作稿与成果保存在本机'}</small></div></div>{!portalUser&&<NavItem icon={ShieldCheck} label="管理台" active={page === 'management'} onClick={() => void navigate('management')} />}<NavItem icon={Settings2} label={portalUser?'个人设置':'模型与设置'} active={page === 'settings'} onClick={() => navigate('settings')} /></div>
     </aside>
     {compact&&mobileNav&&<button className="workspace-panel-backdrop" aria-label="关闭工作区导航" onClick={()=>setMobileNav(false)}/>}
     {layout.leftOpen&&!compact&&<PanelDivider side="left" width={leftWidth} max={Math.min(320,Math.max(184,viewport-(assistantVisible?rightWidth+8:0)-488))} onWidth={v=>setLayout(s=>({...s,leftWidth:v}))}/>}
     <main className="main-column">
-      <header className="topbar"><div className="breadcrumbs"><button className="breadcrumb-project" onClick={() => navigate('home')}>{['submissions','research-assistant','global-library','knowledge'].includes(page) ? '全局工作区' : currentProject?.name || '研究项目'}</button><ChevronRight size={14} /><span className="breadcrumb-current">{page === 'materials' ? material?.title || titles[page] : currentProject?.project_type === 'collation' && (page === 'research' || page === 'volume-preparation' || page === 'collation-batch' || page === 'collation-debug') ? '古籍点校' : (page === 'volume-preparation' || page === 'collation-batch') ? '研究工作' : page==='settings'&&portalUser?'个人设置':titles[page]}</span></div><div className="topbar-actions"><button className="search-trigger" aria-expanded={searchOpen} onClick={() => setSearchOpen(v => !v)}><Search size={15} /><span>搜索项目材料</span><kbd>Ctrl K</kbd></button><button className="provider-chip" onClick={() => navigate('settings')} title="打开模型设置">{data?.settings.configured ? `${data.settings.model} · 已配置` : '配置模型'}</button></div></header>
+      {(!portalUser||['materials','collation-debug'].includes(page))&&<header className="topbar"><div className="breadcrumbs"><button className="breadcrumb-project" onClick={() => navigate('home')}>{['submissions','research-assistant','global-library','knowledge','management'].includes(page) ? '全局工作区' : currentProject?.name || '研究项目'}</button><ChevronRight size={14} /><span className="breadcrumb-current">{page === 'materials' ? material?.title || titles[page] : currentProject?.project_type === 'collation' && (page === 'research' || page === 'volume-preparation' || page === 'collation-batch' || page === 'collation-debug') ? '古籍点校' : (page === 'volume-preparation' || page === 'collation-batch') ? '研究工作' : page==='settings'&&portalUser?'个人设置':titles[page]}</span></div><div className="topbar-actions"><button className="search-trigger" aria-expanded={searchOpen} onClick={() => setSearchOpen(v => !v)}><Search size={15} /><span>搜索项目材料</span><kbd>Ctrl K</kbd></button><button className="provider-chip" onClick={() => navigate('settings')} title="打开模型设置">{data?.settings.configured ? `${data.settings.model} · 已配置` : '配置模型'}</button></div></header>}
       {searchOpen && <div className="search-popover" role="dialog" aria-label="搜索当前项目材料"><Search size={16} /><input ref={searchRef} aria-label="搜索题名或文件名" placeholder="搜索题名或文件名…" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { const found = searchMaterials(materials, search)[0]; if (found) selectMaterial(found.id); } }} /><button className="icon-btn" aria-label="关闭搜索" onClick={() => setSearchOpen(false)}><X size={16} /></button><div className="search-results">{searchMaterials(materials, search).map(m => <button key={m.id} onClick={() => selectMaterial(m.id)}><FileText size={15} /><span>{m.title}</span><span className="search-result-meta">{m.page_count} 页</span></button>)}{!searchMaterials(materials, search).length && <p className="search-empty">没有符合条件的材料。请尝试其他题名或文件名。</p>}</div></div>}
       {serviceError && <div className="service-error" role="alert"><CircleAlert size={16} /><span>资料服务暂时不可用：{serviceError}</span><button className="button-quiet" onClick={() => { void refresh().catch(error => setServiceError(errorText(error))); }}>重新连接</button></div>}
       {data?.catalog_error && <div className="service-error" role="alert"><CircleAlert size={16}/><span>{data.catalog_error}</span><button className="button-quiet" onClick={() => void navigate("global-library")}>打开文献库状态</button></div>}
-      <div className="content-scroll">
+      <div className="content-scroll" id="workspace-content" tabIndex={-1}>
         {!data ? <div className="page-loading" role={startup.stage==='failed'?'alert':'status'}><LoaderCircle className="spin" size={22} />{startup.stage==='ready'?'正在打开项目资料':startup.message}{startup.elapsed>=3&&<span> · {startup.elapsed} 秒</span>}</div> : <>
       {page === 'submissions' && <SubmissionWorkbench projects={data.projects} draft={submissionDraft} onDraftUsed={clearSubmissionDraft} onRegisterLeave={registerLeave} />}
       {page === 'home' && currentProject && <ProjectOverview activity={data.collation_activity} onBatch={() => { if (data.collation_activity) localStorage.setItem(`shixue-batch-${projectId}`, data.collation_activity.id); void openBatch(); }} preparedCount={data.prepared_material_count || 0} onPreprocess={() => void openPreparation()} selectedUnitId={session.unitByProject?.[projectId]} project={currentProject} materials={materials} units={units} tasks={tasks} onWork={id => void (id ? openUnit(id) : openResearch())} onMaterials={() => void navigate('project-materials')} onImport={() => void doImport(undefined, projectId, currentProject.project_type === 'collation' && !materials.some(m => m.roles?.includes('base')) ? 'base' : 'reference')} onConfigure={() => setProjectConfigOpen(true)} onTask={openTaskRecord} />}
@@ -391,14 +433,17 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
           {page === 'materials' && <Workspace material={material} detail={currentDetail} error={detailError} onReload={() => setDetailRevision(v => v + 1)} view={view} updateView={updateView} task={materialTask} tasks={materialTasks} onTask={openTaskRecord} onResult={showTaskArtifact} onSource={showSource} configured={!!data.settings.configured} serviceReady={!serviceError} onSettings={() => navigate('settings')} onBack={() => { setFilter(''); void navigate('project-materials'); }} onImport={() => void doImport()} uploading={uploading} onRun={runTask} busy={busy} onReference={referenceAction} onExport={exportArtifact} />}
           {page === 'tasks' && <><TaskPage history={!openTaskId&&currentProject?<BatchHistory project={currentProject} onOpen={id => { localStorage.setItem(`shixue-batch-${projectId}`, id); void openBatch(); }} />:null} tasks={tasks} task={openTask?.project_id === projectId ? openTask : undefined} selectedId={openTaskId} onSelect={openTaskRecord} onBack={() => setOpenTaskId(null)} onRetry={retryTask} onSource={showSource} onResult={showTaskArtifact} onSettings={() => navigate('settings')} onExport={exportArtifact} /></>}
           {page === 'artifacts' && <><ArtifactsPage draftCount={units.length} drafts={units.length?<WorkResults units={units} onOpen={id => void openUnit(id)} onCreateSubmission={unit => { void navigate('submissions').then(ok => { if (ok) setSubmissionDraft({ title: unit.title, project_id: unit.project_id, source_kind: 'unit', source_id: unit.id }); }); }} />:null} onResearchSource={anchor=>{void (async()=>{try{const source=await request<{edition_id:string;deleted:boolean;locator:{asset_id:string;page_index:number}}>('/api/knowledge/anchors/'+anchor);if(source.deleted)throw Error('原始来源已删除，成果中的引文快照仍保留');if(await navigate('global-library'))setLibraryIncoming({id:source.edition_id,asset:source.locator.asset_id,page:source.locator.page_index});}catch(error){setToast(errorText(error));}})();}} onCreateSubmission={artifact => { void navigate('submissions').then(ok => { if (ok) setSubmissionDraft({ title: artifact.title, project_id: artifact.project_id, source_kind: 'artifact', source_id: artifact.id }); }); }} artifacts={artifacts} selected={openArtifact} onSelect={openArtifactRecord} onBack={() => setArtifactId(null)} onSource={showSource} onTask={openTaskRecord} onExport={exportArtifact} /></>}
-          {page === 'settings' && portalUser && <div className="page-container settings-page-header"><div className="welcome-row"><div><h1>个人设置</h1><p>管理账号安全、界面外观与研究偏好。</p></div></div></div>}
-          {page === 'settings' && <div className="page-container settings-hub-tabs" role="tablist" aria-label="设置类别">{settingsTabs.map(([id,label])=><button key={id} role="tab" aria-selected={settingsSection===id} className={settingsSection===id?'button-primary':'button-secondary'} onClick={()=>void (async()=>{if(leaveWork.current&&!(await leaveWork.current()))return;setSettingsSection(id);})()}>{label}</button>)}</div>}
+          {page === 'settings' && portalUser && <div className="page-container settings-page-header"><PageHeading title={<>个人设置</>} description={<>管理账号安全、界面外观与研究偏好。</>}/></div>}
+          {page === 'settings' && <div className="page-container settings-shell"><nav className="settings-subnav" aria-label="设置类别" role="tablist" onKeyDown={subnavKeys}>{settingsTabs.map(([id,label])=><button key={id} role="tab" aria-selected={settingsSection===id} tabIndex={settingsSection===id?0:-1} className={`settings-nav-item ${settingsSection===id?'is-active':''}`} onClick={()=>void (async()=>{if(leaveWork.current&&!(await leaveWork.current()))return;setSettingsSection(id);})()}>{label}</button>)}</nav><div className="settings-content">
           {page === 'settings' && !portalUser && settingsSection === 'model' && <SettingsPage settings={settings} dirty={dirtySettings} onChange={value => { dirtyRef.current = true; ++settingsVersion.current; setSettings(value); setDirtySettings(true); setConnectionResult(null); }} onSave={saveSettings} saving={savingSettings} onTest={testConnection} testing={testing} connectionResult={connectionResult} onReturn={() => void navigate(settingsReturn.current)} />}
-          {page === 'settings' && portalUser && settingsSection === 'account' && onLogout && <div className="portal-user-settings"><AccountSettings user={portalUser} onLogout={onLogout}/><div className="portal-model-info">研究模型由管理员配置。当前模型：{data.settings.model||'尚未配置'}。</div></div>}
+          {page === 'settings' && portalUser && settingsSection === 'account' && onLogout && <div className="portal-user-settings"><AccountSettings user={portalUser} onLogout={onLogout} embedded/><div className="portal-model-info">研究模型由管理员配置。当前模型：{data.settings.model||'尚未配置'}。</div></div>}
           {page === 'settings' && settingsSection === 'appearance' && <AppearanceSettings embedded={!!portalUser} theme={theme} onChange={v=>{setTheme(v);saveTheme(v);}}/>}
           {page === 'settings' && !portalUser && settingsSection === 'data' && <><WorkspaceStorage /><KnowledgeSettings /></>}
-          {page === 'settings' && settingsSection !== 'model' && settingsSection !== 'appearance' && settingsSection !== 'account' && <KnowledgeWorkbench embedded={!!portalUser} readOnlyLibrary={!!portalUser} key={settingsSection} section="management" initialTab={settingsSection==='data'?'maintenance':settingsSection==='assistants'?'assistant-settings':settingsSection==='retrieval'?'retrieval-settings':'unclassified'} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('settings')} onRegisterLeave={registerLeave} />}
+          </div></div>}
 
+          {page === 'management' && !portalUser && <div className="page-container settings-page-header"><PageHeading title={<>管理台</>} description={<>助手与 Skill、检索配置和资料维护。</>}/></div>}
+          {page === 'management' && !portalUser && <div className="page-container settings-shell"><nav className="settings-subnav" aria-label="管理台类别" role="tablist" onKeyDown={subnavKeys}>{(['assistants','retrieval','catalog'] as const).map(tab => <button key={tab} role="tab" aria-selected={managementTab===tab} tabIndex={managementTab===tab?0:-1} className={`settings-nav-item ${managementTab===tab?'is-active':''}`} onClick={() => setManagementTab(tab)}>{tab==='assistants'?'助手与 Skill':tab==='retrieval'?'检索设置':'资料维护'}</button>)}</nav><div className="settings-content">
+          {page === 'management' && !portalUser && <KnowledgeWorkbench key={managementTab} embedded section="management" initialTab={managementTab==='assistants'?'assistant-settings':managementTab==='retrieval'?'retrieval-settings':'unclassified'} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('management')} onRegisterLeave={registerLeave} />}</div></div>}
           {(page === 'knowledge' || page === 'global-library' && !globalReaderId) && <LibraryView portal={!!portalUser} scope={libraryScope} onScope={setLibraryScope} key={'library-'+libraryReset} incomingSource={libraryIncoming} onIncomingUsed={clearLibraryIncoming} onNavigateAssistant={(query,id,filter)=>{setAssistantDraft({query,id,filter});openAssistant();}} projects={data.projects} projectId={projectId} onChanged={changed} onSettings={() => void navigate('settings')} onRegisterLeave={registerLeave} />}
         </>}
       </div>
@@ -407,7 +452,7 @@ export default function App({portalUser,onLogout}:{portalUser?:PortalUser;onLogo
     {compact&&assistantVisible&&<button className="workspace-panel-backdrop" aria-label="关闭研究助手遮罩" onClick={closeAssistant}/>}
     {assistantVisible&&!compact&&<PanelDivider side="right" width={rightWidth} max={Math.min(620,rightMaximum)} onWidth={v=>setLayout(s=>({...s,rightWidth:v}))}/>}
     {currentProject&&<aside className="project-assistant-panel" aria-label="项目研究助手" hidden={!assistantVisible}><header className="project-assistant-heading"><strong>研究助手</strong><button className="icon-btn" aria-label="收起研究助手" onClick={closeAssistant}><PanelRightClose size={17}/></button></header><ProjectAssistantPanel key={projectId} project={currentProject} draft={assistantDraft} onDraftUsed={clearAssistantDraft} onChanged={changed} onSettings={()=>void navigate('settings')} onOpenSource={async(id,asset,p)=>{setGlobalAssistant(true);if(await navigate('global-library'))setLibraryIncoming({id,asset,page:p});}}/></aside>}
-    {toast && <div className="toast" role="status" aria-live="polite"><CircleAlert size={17} /><span>{toast}</span><button className="icon-btn" aria-label="关闭提示" onClick={() => setToast('')}><X size={16} /></button></div>}
+    {toast && <div className={`toast ${toastSuccess?'is-success':''}`} role="status" aria-live="polite" onMouseEnter={() => setToastPaused(true)} onMouseLeave={() => setToastPaused(false)} onFocus={() => setToastPaused(true)} onBlur={() => setToastPaused(false)}>{toastSuccess?<Check size={17} />:<CircleAlert size={17} />}<span>{toast}</span><button className="icon-btn" aria-label="关闭提示" onClick={() => setToast('')}><X size={16} /></button></div>}
     {projectConfigOpen && currentProject && <ProjectConfigDialog project={currentProject} onClose={() => setProjectConfigOpen(false)} onSave={configureProject} onArchive={archiveProject} onDelete={deleteProject} />}
     {projectDialog && <Modal title="新建研究项目" onClose={() => { if (!creatingProject) setProjectDialog(false); }}><form onSubmit={e => { e.preventDefault(); void createProject(); }}><label className="form-label">项目名称<input autoFocus value={projectName} maxLength={100} onChange={e => setProjectName(e.target.value)} placeholder="例如：明清地方社会研究" /></label><label className="form-label">项目类型<select value={projectType} onChange={e => setProjectType(e.target.value as Project['project_type'])}>{Object.entries(projectNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><p className="scope-note">可以先创建，再添加底本、参校资料和研究规则。类型不会限制其他研究工具。</p><div className="modal-actions"><button type="button" className="button-secondary" disabled={creatingProject} onClick={() => setProjectDialog(false)}>取消</button><button className="button-primary" disabled={!projectName.trim() || creatingProject}>{creatingProject ? '创建中…' : '创建项目'}</button></div></form></Modal>}
   </div>;

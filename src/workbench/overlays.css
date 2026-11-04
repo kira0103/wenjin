@@ -1,0 +1,235 @@
+/* 右侧抽屉：与 Modal 同一层级语言，但保留主区上下文。 */
+.drawer-overlay { position: fixed; inset: 0; z-index: 120; display: flex; justify-content: flex-end; background: var(--tone-000a); animation: drawer-fade .16s ease-out; }
+.drawer-panel { display: flex; flex-direction: column; min-width: 0; width: min(var(--drawer-width, 440px), 94vw); height: 100%; background: var(--surface); color: var(--text); border-left: 1px solid var(--line); box-shadow: -18px 0 60px var(--tone-0009); outline: none; animation: drawer-slide .2s ease-out; }
+.drawer-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.drawer-heading h2 { margin: 0; font-size: 18px; }
+.drawer-body { flex: 1; min-height: 0; overflow: auto; padding: 18px 20px; }
+.drawer-body .form-label:last-child { margin-bottom: 0; }
+.drawer-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); background: var(--surface-2); }
+@keyframes drawer-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes drawer-slide { from { transform: translateX(28px); opacity: .6; } to { transform: translateX(0); opacity: 1; } }
+
+/* 分步向导：进度条 + 步骤条 + 内容区，复用 Modal 的动作区。 */
+.wizard-progress { height: 3px; margin: 0 0 14px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.wizard-progress > i { display: block; height: 100%; background: var(--portal-accent, var(--accent)); transition: width .18s ease-out; }
+.wizard-steps { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 0 0 18px; padding: 0; list-style: none; }
+.wizard-step { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+.wizard-step > span { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--line); border-radius: 50%; font-size: 11px; }
+.wizard-step.is-active { color: var(--text); font-weight: 600; }
+.wizard-step.is-active > span { border-color: var(--portal-accent, var(--accent)); color: var(--portal-accent, var(--accent)); }
+.wizard-step.is-done > span { border-color: var(--portal-accent, var(--accent)); background: var(--portal-accent, var(--accent)); color: var(--surface); }
+.wizard-body { min-height: 150px; }
+
+@media (max-width: 640px) {
+  .wizard-steps { display: none; }
+  .drawer-panel { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-overlay, .drawer-panel { animation: none; }
+  .wizard-progress > i { transition: none; }
+}
+
+/* 抽屉内复用页面区块时避免双重内边距。 */
+.drawer-body .reference-view,
+.drawer-body .history-view { padding: 0; }
+
+/* portal 作用域内沿用门户弹窗的材质与圆角。 */
+.portal-modal .drawer-panel { border-radius: 15px 0 0 15px; box-shadow: -24px 0 100px #10243030; background: var(--surface); color: var(--text); }
+
+/* 键盘用户跳过导航直达主内容。 */
+.skip-link { position: fixed; left: 16px; top: -56px; z-index: 500; padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--surface); font-size: 13px; text-decoration: none; transition: top .12s ease-out; }
+.skip-link:focus { top: 12px; }
+#workspace-content:focus { outline: none; }
+
+/* 设置 / 管理台：左侧二级导航 + 右侧内容。 */
+.settings-shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; align-items: start; }
+.settings-subnav { display: grid; gap: 4px; position: sticky; top: 8px; }
+.settings-nav-item { display: flex; align-items: center; width: 100%; min-height: 38px; padding: 8px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; text-align: left; }
+.settings-nav-item:hover { background: var(--surface-2); color: var(--text); }
+.settings-nav-item.is-active { background: var(--surface-2); border-color: var(--line); color: var(--text); font-weight: 600; box-shadow: inset 3px 0 0 var(--portal-accent, var(--accent)); }
+.settings-content { min-width: 0; }
+.settings-content .page-container, .settings-content .settings-page-header { padding: 0; max-width: none; }
+
+@media (max-width: 980px) {
+  .settings-shell { grid-template-columns: 1fr; gap: 12px; }
+  .settings-subnav { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; position: static; padding-bottom: 2px; }
+}
+
+/* Toast 成功态：图标与描边使用品牌色，文案与失败态区分。 */
+.toast.is-success { border-color: var(--portal-accent, var(--accent)); }
+.toast.is-success > svg { color: var(--portal-accent, var(--accent)); }
+
+/* 浮层与细节：Toast 浮于抽屉/弹窗之上；窄窗头部动作换行；批量空态收紧；长标题截断。 */
+.toast { z-index: 130; }
+.workspace-header .action-row { flex-wrap: wrap; }
+.batch-page .prep-section .empty-block { min-height: 120px; padding: 22px 18px; }
+.drawer-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-nav-item { transition: background .12s ease-out, color .12s ease-out; }
+
+/* ============================================================
+   界面密度与页头：压缩上下平铺、宽屏下与内容列对齐
+   ============================================================ */
+
+/* 工作台：页容器、页头与宽屏顶栏/状态栏对齐 */
+.app-shell .topbar { padding-left: max(28px, calc((100% - 1600px) / 2 + 28px)); padding-right: max(28px, calc((100% - 1600px) / 2 + 28px)); }
+.app-shell .statusbar { padding-left: max(28px, calc((100% - 1600px) / 2 + 28px)); padding-right: max(28px, calc((100% - 1600px) / 2 + 28px)); }
+.app-shell .page-container { padding: 18px 28px 28px; }
+.app-shell .welcome-row { margin: 0 0 16px; align-items: center; gap: 16px; }
+.app-shell .welcome-row h1 { font-size: 22px; line-height: 1.35; }
+.app-shell .welcome-row p { margin: 4px 0 0; font-size: 13px; line-height: 1.65; }
+.app-shell .action-row { margin: 10px 0; }
+.app-shell .kb-tabs { margin: 6px 0 12px; padding-bottom: 8px; }
+.app-shell .page-container.kb-workbench { max-width: 1600px; margin-left: auto; margin-right: auto; }
+.app-shell .kb-file-layout { padding: 16px; gap: 18px; }
+
+/* 文献归属切换：并进页头，不再单独占一行 */
+.kb-scope-switch { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); flex-shrink: 0; }
+.kb-scope-switch button { border: 0; border-radius: 7px; padding: 7px 14px; font-size: 12px; color: var(--muted); background: transparent; white-space: nowrap; }
+.kb-scope-switch button:hover { background: var(--surface-2); color: var(--text); }
+.kb-scope-switch button[aria-selected=true] { background: var(--portal-soft, var(--accent-soft)); color: var(--portal-accent, var(--accent)); font-weight: 600; }
+
+/* 管理后台：与工作台同一套密度与页头节奏（数据表保持全宽，便于专业表格查看） */
+.portal-admin .portal-admin-content { width: 100%; padding: 20px 28px 28px; gap: 18px; }
+.portal-admin .portal-admin-topbar { padding-left: 28px; padding-right: 28px; }
+.portal-admin .portal-page-heading { min-height: 0; gap: 16px; align-items: flex-end; }
+.portal-admin .portal-heading-copy { gap: 12px; }
+.portal-admin .portal-heading-icon { width: 42px; height: 42px; border-radius: 11px; }
+.portal-admin .portal-eyebrow { font-size: 10px; letter-spacing: 1px; }
+.portal-admin .portal-page-heading h1 { margin: 2px 0 4px; font-size: 22px; line-height: 1.3; letter-spacing: -.2px; }
+.portal-admin .portal-page-heading p { font-size: 12px; line-height: 1.65; }
+.portal-admin .portal-stats { gap: 14px; }
+.portal-admin .portal-stat { padding: 16px; gap: 10px; border-radius: 11px; }
+.portal-admin .portal-stat strong { font-size: 25px; }
+.portal-admin .portal-admin-footer { padding: 12px 28px; }
+.portal-admin .portal-card { border-radius: 12px; }
+.portal-admin .portal-card-heading, .portal-admin .portal-table-toolbar { padding: 16px 20px; }
+.portal-admin .portal-card h2 { font-size: 14px; }
+.portal-admin .portal-card-heading p, .portal-admin .portal-table-toolbar p { margin-top: 4px; font-size: 11px; line-height: 1.6; }
+.portal-admin .portal-table th { padding: 11px 18px; }
+.portal-admin .portal-table td { padding: 13px 18px; }
+.portal-shared-library>.kb-workbench { border-radius: 12px; }
+.portal-shared-library .kb-file-layout { padding: 16px; gap: 18px; }
+.portal-shared-library .kb-workbench>:not(.kb-resources-toolbar):not(.kb-file-layout) { margin-left: 16px; margin-right: 16px; }
+
+@media (max-width: 1100px) {
+  .app-shell .topbar, .app-shell .statusbar { padding-left: 20px; padding-right: 20px; }
+  .portal-admin .portal-admin-content { padding: 16px 20px 24px; }
+  .portal-admin .portal-admin-topbar { padding-left: 20px; padding-right: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kb-scope-switch button { transition: none; }
+}
+.batch-meta > summary,
+.batch-events-block > summary { cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.batch-meta[open] > summary,
+.batch-events-block[open] > summary { margin-bottom: 8px; }
+.batch-meta > p { margin: 6px 0 0; }
+
+/* ===== P1：概览清单、编辑器宽度、Admin 壳与表格 ===== */
+
+/* App 项目概览：一个主行动 + 紧凑 checklist */
+.app-shell .project-summary strong { font-size: 20px; letter-spacing: -.2px; }
+.app-shell .setup-grid { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 16px 0 18px; }
+.app-shell .setup-card { align-items: center; min-height: 0; gap: 12px; padding: 10px 14px; border-radius: 10px; box-shadow: none; }
+.app-shell .setup-card:hover { box-shadow: none; }
+.app-shell .setup-card.setup-done { opacity: .62; }
+.app-shell .setup-card.setup-next { border-color: var(--portal-accent, var(--accent)); background: var(--portal-soft, var(--accent-soft)); box-shadow: inset 3px 0 0 var(--portal-accent, var(--accent)); }
+.app-shell .setup-card.setup-next .setup-number { background: var(--surface); color: var(--portal-accent, var(--accent)); }
+.app-shell .setup-card:not(.setup-done):not(.setup-next) { opacity: .82; }
+.app-shell .setup-number { width: 24px; height: 24px; flex: 0 0 24px; font-size: 11px; background: var(--surface-2); color: var(--muted); }
+.app-shell .setup-card h3 { margin: 0 0 2px; font-size: 13px; line-height: 1.4; }
+.app-shell .setup-card p { margin: 0 0 2px; font-size: 12px; line-height: 1.5; }
+.app-shell .setup-card small { font-size: 11px; }
+.app-shell .setup-card > div { min-width: 0; }
+
+/* App 编辑器：关掉助手后把宽度给正文 */
+.app-shell .research-body { grid-template-columns: minmax(280px, .72fr) minmax(440px, 1.28fr); }
+
+/* Admin 壳：浅色主题下侧栏回到页面底色，深色主题保持 console */
+.portal-admin .portal-admin-sidebar { background: var(--portal-surface); color: var(--portal-muted); border-right: 1px solid var(--portal-line); }
+.portal-admin .portal-admin-sidebar .portal-brand { color: var(--portal-ink); }
+.portal-admin .portal-admin-sidebar .portal-brand > span { background: var(--portal-soft); color: var(--portal-accent); }
+.portal-admin .portal-admin-sidebar .portal-brand small { color: var(--portal-muted); }
+.portal-admin .portal-admin-sidebar .portal-sidebar-caption { color: var(--portal-muted); }
+.portal-admin .portal-admin-sidebar nav button { color: var(--portal-muted); }
+.portal-admin .portal-admin-sidebar nav button svg { color: var(--portal-muted); }
+.portal-admin .portal-admin-sidebar nav button:hover { background: var(--portal-bg); color: var(--portal-ink); }
+.portal-admin .portal-admin-sidebar nav button.active { background: var(--portal-bg); border-color: var(--portal-line); color: var(--portal-ink); font-weight: 600; }
+.portal-admin .portal-admin-sidebar nav button.active svg { color: var(--portal-accent); }
+.portal-admin .portal-admin-sidebar nav small { background: var(--portal-bg); color: var(--portal-muted); }
+.portal-admin .portal-admin-sidebar .portal-sidebar-bottom { color: var(--portal-muted); }
+.portal-admin .portal-admin-sidebar .portal-sidebar-bottom > a { color: var(--portal-ink); border-top-color: var(--portal-line); }
+
+[data-theme=dark] .portal-admin .portal-admin-sidebar { background: #142e31; color: #b8ccce; border-right: 0; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar .portal-brand { color: #f0faf6; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar .portal-brand > span { background: #bdebd9; color: #17453d; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar .portal-brand small { color: #82a3a4; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar .portal-sidebar-caption { color: #829fa1; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar nav button { color: #b9ccce; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar nav button svg { color: #82a5a6; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar nav button:hover { background: #ffffff08; color: #fff; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar nav button.active { background: #ffffff12; border-color: #33595a; color: #fff; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar nav button.active svg { color: #96dec3; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar nav small { background: #ffffff0b; color: #a1babc; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar .portal-sidebar-bottom { color: #91aeb0; }
+[data-theme=dark] .portal-admin .portal-admin-sidebar .portal-sidebar-bottom > a { color: #cce2e1; border-top-color: #ffffff12; }
+
+/* Admin 布局：卡片按内容收高，去掉被拉伸的空带 */
+.portal-admin .portal-overview-grid { align-items: start; }
+.portal-admin .portal-overview-grid > .portal-card { align-self: start; }
+.portal-shared-library { align-self: start; }
+.portal-shared-library > .kb-workbench { align-self: start; height: auto; }
+.portal-shared-library .kb-file-layout { min-height: 0; align-content: start; }
+.portal-admin .portal-model-card { max-width: none; }
+.portal-admin .portal-account-card .portal-section-heading { display: none; }
+.portal-admin .portal-model-card .portal-form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; }
+.portal-admin .portal-model-card .portal-form > label:nth-child(1) { grid-column: 1; grid-row: 1; }
+.portal-admin .portal-model-card .portal-form > label:nth-child(3) { grid-column: 2; grid-row: 1; }
+.portal-admin .portal-model-card .portal-form > label:nth-child(2) { grid-column: 1 / -1; }
+.portal-admin .portal-model-card .portal-form-grid,
+.portal-admin .portal-model-card .portal-config-facts,
+.portal-admin .portal-model-card .portal-actions { grid-column: 1 / -1; }
+.portal-admin .portal-model-card .portal-actions { justify-self: end; }
+
+/* Admin 操作记录：紧凑表格 */
+.portal-admin .portal-audit-table { padding: 0; }
+.portal-admin .portal-audit-table .portal-table th { padding: 10px 20px; font-size: 11px; }
+.portal-admin .portal-audit-table .portal-table td { padding: 11px 20px; border-top: 1px solid var(--portal-line); vertical-align: top; }
+.portal-admin .portal-audit-time { white-space: nowrap; color: var(--portal-muted); font-variant-numeric: tabular-nums; }
+.portal-admin .portal-audit-detail { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-muted); }
+.portal-admin .portal-overview-grid .portal-audit-table .portal-table td { padding: 9px 18px; font-size: 11px; }
+
+@media (max-width: 760px) {
+  .app-shell .setup-card { padding: 10px 12px; }
+  .app-shell .research-body { grid-template-columns: 1fr; }
+  .portal-admin .portal-model-card .portal-form { grid-template-columns: 1fr; }
+  .portal-admin .portal-model-card .portal-form > label { grid-column: auto; grid-row: auto; }
+}
+
+/* ===== P2：accent 预算、字号下限、移动 KPI、RAG 减层 ===== */
+
+.app-shell .nav-item-active,
+.app-shell .material-nav-active { background: var(--surface-2); border-color: var(--line); color: var(--text); font-weight: 600; }
+.app-shell .nav-item-active > svg { color: var(--muted); }
+.app-shell .statusbar { font-size: 11px; }
+.app-shell .nav-scope-label { font-size: 11px; }
+.app-shell .storage-meter small { font-size: 11px; }
+.portal-admin .portal-admin-footer { font-size: 11px; }
+.rag-pipeline i { font-size: 11px; }
+
+/* RAG 页：去掉重复的「知识库检索」标题，管道默认折叠 */
+.rag-topline { justify-content: flex-end; align-items: center; gap: 10px; padding-bottom: 8px; }
+.rag-pipeline-details { margin: 0 0 10px; }
+.rag-pipeline-details > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 0; }
+.rag-pipeline-details[open] > summary { margin-bottom: 8px; }
+.rag-service h3 svg { color: var(--muted); }
+
+/* 手机端 5 个 KPI：2 列，最后一项占满整行，避免 orphan cell */
+@container workspace (max-width: 620px) {
+  .portal-workspace .project-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .portal-workspace .project-summary > :nth-child(odd) { border-right: 1px solid var(--line); }
+  .portal-workspace .project-summary > :nth-child(even) { border-right: 0; }
+  .portal-workspace .project-summary > :last-child { grid-column: 1 / -1; border-right: 0; border-top: 1px solid var(--line); padding-top: 10px; }
+}

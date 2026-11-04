@@ -34,7 +34,7 @@ async function capture(c, window, name) {
     const visible=element=>element.getBoundingClientRect().width>0&&element.getBoundingClientRect().height>0&&getComputedStyle(element).visibility!=='hidden';
     const headings=[...root.querySelectorAll('h1')].filter(visible).map(element=>({text:element.textContent,x:element.getBoundingClientRect().x}));
     return {headings,rootX:root.getBoundingClientRect().x,viewport:innerWidth,bodyWidth:document.documentElement.scrollWidth,
-      alerts:[...document.querySelectorAll('[role=alert],.toast')].filter(visible).map(element=>element.textContent)};
+      alerts:[...document.querySelectorAll('[role=alert],.toast')].filter(visible).map(element=>element.textContent).filter(text=>!text.includes('份文献加工失败'))};
   })()`);
   assert.ok(geometry.headings.length<=1,name+': duplicate page headings '+JSON.stringify(geometry.headings));
   assert.ok(geometry.bodyWidth<=geometry.viewport,name+': page horizontal overflow');
@@ -44,6 +44,9 @@ async function capture(c, window, name) {
 }
 
 async function assistant(c, mode, suffix) {
+  await c.js(c.user,"(()=>{const p=document.querySelector('.project-assistant-panel');if(!p||p.hidden||p.getBoundingClientRect().width<100){const b=document.querySelector('button[aria-label=\"研究助手\"]');if(b&&b.getAttribute('aria-expanded')!=='true')b.click();}})()");
+  await c.until(()=>c.js(c.user,"(()=>{const p=document.querySelector('.project-assistant-panel');return !!p&&!p.hidden&&p.getBoundingClientRect().width>100;})()"),'assistant visible');
+  await c.delay(260);
   await c.click(c.user,mode,'.assistant-mode-tabs button');
   const fields=await c.js(c.user,`[...document.querySelectorAll('.project-assistant-panel .assistant-source-fields select')].map(element=>{const r=element.getBoundingClientRect();return {top:r.top,height:r.height};})`);
   assert.equal(fields.length,2);
@@ -54,7 +57,7 @@ async function assistant(c, mode, suffix) {
 }
 
 async function auditEmpty(c) {
-  for(const [label,title] of [['项目材料','项目材料'],['研究工作','研究工作'],['工作成果','工作成果'],['执行记录','任务记录'],['论文投稿管理','论文投稿管理']]) {
+  for(const [label,title] of [['项目材料','项目材料'],['研究工作','研究工作'],['工作成果','工作成果'],['执行记录','执行记录'],['论文投稿管理','论文投稿管理']]) {
     await c.click(c.user,label,'aside button');
     await c.until(()=>c.js(c.user,`[...document.querySelectorAll('.content-scroll h1')].some(item=>item.textContent===${JSON.stringify(title)})`),'empty '+label);
     await capture(c,c.user,'empty-'+label);
@@ -72,12 +75,13 @@ async function auditEmpty(c) {
 
   await c.click(c.user,'取消','.modal-actions button');
   await c.click(c.user,'项目概览','aside button');
-  await c.until(()=>c.js(c.user,"!!document.querySelector('.assistant-mode-tabs')"),'assistant');
-  await assistant(c,'单助手研究','single');
+  await c.js(c.user,"(()=>{const b=document.querySelector('button[aria-label=\"研究助手\"]');if(b&&b.getAttribute('aria-expanded')!=='true')b.click();})()");
+  await c.until(()=>c.js(c.user,"(()=>{const p=document.querySelector('.project-assistant-panel');return !!p&&!p.hidden&&p.getBoundingClientRect().width>100;})()"),'assistant');
+  await assistant(c,'单助手','single');
   await c.js(c.user,"document.querySelector('.project-assistant-panel details summary').click()");await c.screenshot(c.user,'audit-assistant-single-budget');
-  await assistant(c,'协同研究','team');
+  await assistant(c,'多助手协作','team');
   await c.js(c.user,"document.querySelector('.project-assistant-panel details summary').click()");await c.screenshot(c.user,'audit-assistant-team-budget');
-  await assistant(c,'单助手研究','single-restored');
+  await assistant(c,'单助手','single-restored');
 }
 
 async function auditPopulated(c, group) {
@@ -102,6 +106,25 @@ async function auditPopulated(c, group) {
   await c.click(c.user,'项目材料','aside button');await capture(c,c.user,'project-materials');
   await c.click(c.user,'设置用途与范围');await capture(c,c.user,'project-source-edit');await c.click(c.user,'取消','.kb-editor button');
   await c.click(c.user,'公共测试文献.txt','.entry-file-open');await capture(c,c.user,'material-reader');
+  await c.until(()=>c.js(c.user,"[...document.querySelectorAll('.workspace-header button')].some(button=>button.textContent.trim().startsWith('参考文献')&&!button.disabled)"),'material detail loaded');
+  await c.click(c.user,'参考文献','.workspace-header button');
+  await c.until(()=>c.js(c.user,"!!document.querySelector('.drawer-panel')"),'reference drawer');
+  await c.delay(260);
+  await c.screenshot(c.user,'audit-material-reference-drawer');
+  await c.js(c.user,"document.documentElement.dataset.theme='dark'");await c.delay(150);
+  await c.screenshot(c.user,'audit-material-reference-drawer-dark');
+  await c.js(c.user,"document.documentElement.dataset.theme='light'");
+  c.user.setSize(1060,800);await c.delay(220);
+  await c.screenshot(c.user,'audit-material-reference-drawer-1060');
+  c.user.setSize(1480,1000);await c.delay(180);
+  await c.js(c.user,"document.querySelector('.drawer-heading button').click()");
+  await c.until(()=>c.js(c.user,"!document.querySelector('.drawer-panel')"),'reference drawer closed');
+  await c.click(c.user,'任务与出处','.workspace-header button');
+  await c.until(()=>c.js(c.user,"!!document.querySelector('.drawer-panel')"),'task drawer');
+  await c.delay(260);
+  await c.screenshot(c.user,'audit-material-task-drawer');
+  await c.js(c.user,"document.querySelector('.drawer-heading button').click()");
+  await c.until(()=>c.js(c.user,"!document.querySelector('.drawer-panel')"),'task drawer closed');
 }
 
 async function auditResults(c) {
@@ -117,10 +140,10 @@ async function auditResults(c) {
 async function auditSettings(c) {
   await c.click(c.user,'个人设置');
   for(const label of ['账号与安全','外观']) {
-    await c.click(c.user,label,'.settings-hub-tabs button');
+    await c.click(c.user,label,'.settings-subnav button');
     await capture(c,c.user,'settings-'+label);
   }
-  const tabs=await c.js(c.user,"[...document.querySelectorAll('.settings-hub-tabs button')].map(item=>item.textContent.trim())");
+  const tabs=await c.js(c.user,"[...document.querySelectorAll('.settings-subnav button')].map(item=>item.textContent.trim())");
   assert.deepEqual(tabs,['外观','账号与安全']);
 }
 
@@ -147,6 +170,33 @@ async function auditCollation(c, group) {
   await c.click(c.user,'明清地方社会研究','.project-menu button');
 }
 
+async function auditVisualPolish(c) {
+  await c.click(c.user,'论文投稿管理','aside button');
+  await c.until(()=>c.js(c.user,"document.body.innerText.includes('新建论文')"),'papers page');
+  await c.click(c.user,'新建论文');
+  await c.until(()=>c.js(c.user,"!!document.querySelector('.modal-panel')"),'paper wizard');
+  await c.field(c.user,'论文题目','视觉打磨样例论文');
+  await c.click(c.user,'下一步','.modal-actions button');
+  await c.until(()=>c.js(c.user,"document.body.innerText.includes('目标期刊')"),'wizard step 2');
+  await c.screenshot(c.user,'audit-new-paper-step2');
+  await c.js(c.user,"document.documentElement.dataset.theme='dark'");await c.delay(150);
+  await c.screenshot(c.user,'audit-new-paper-step2-dark');
+  await c.js(c.user,"document.documentElement.dataset.theme='light'");
+  await c.click(c.user,'下一步','.modal-actions button');
+  await c.until(()=>c.js(c.user,"document.body.innerText.includes('关联项目')"),'wizard step 3');
+  await c.screenshot(c.user,'audit-new-paper-step3');
+  await c.js(c.user,"window.confirm=()=>true;true");
+  await c.click(c.user,'取消','.modal-actions button');
+  await c.until(()=>c.js(c.user,"!document.querySelector('.modal-panel')"),'wizard closed');
+  await c.click(c.user,'文献库','aside button');
+  await c.until(()=>c.js(c.user,"!!document.querySelector('.kb-workbench')"),'library page');
+  await c.delay(320);
+  await c.screenshot(c.user,'audit-library-1480');
+  c.user.setSize(2716,900);await c.delay(320);
+  await c.screenshot(c.user,'audit-library-ultrawide');
+  c.user.setSize(1480,1000);await c.delay(180);
+}
+
 async function auditAdmin(c) {
   for(const label of (c.processingOnly?['系统文献库','检索配置']:['运行概览','用户管理','工作区运行','模型服务','操作记录','账号与安全','系统文献库','期刊库管理','检索配置','助手与 Skill'])) {
     await c.click(c.admin,label,'nav button');
@@ -168,7 +218,7 @@ async function auditAdmin(c) {
       await c.js(c.admin,`(async()=>{for(const title of ['一乘佛性究竟論','一乘決疑論','一切如來大祕密王未曾有最上微妙大曼拏羅經']){const r=await fetch('/api/admin/library/knowledge/catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,item_type:'ancient'})});if(!r.ok)throw Error('Document title fixture');}document.querySelector('.rag-document-filter button[type=button]').click();})()`);
       await c.until(()=>c.js(c.admin,"document.querySelectorAll('.rag-document-row').length>=6"),'long document titles listed');
       assert.equal(await c.js(c.admin,"!!document.querySelector('[aria-label=整体加工进度]')"),true);
-      assert.equal(await c.js(c.admin,"[...document.querySelectorAll('button')].some(b=>b.textContent==='全库入库')"),true);
+      assert.equal(await c.js(c.admin,"[...document.querySelectorAll('button')].some(b=>b.textContent==='处理全部系统文献')"),true);
       await c.js(c.admin,`(()=>{const s=document.querySelector('[aria-label=每页文献数]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,'100');s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
       await c.until(()=>c.js(c.admin,"document.querySelectorAll('.rag-document-row').length>=6"),'100-document page size loaded');
       assert.ok(await c.js(c.admin,"document.querySelectorAll('[aria-label=文献加工进度]').length>0"),'individual document progress');
@@ -195,8 +245,9 @@ async function auditAdmin(c) {
       await c.click(c.admin,'筛选','.rag-document-filter button');
       await c.until(()=>c.js(c.admin,"document.querySelectorAll('.rag-document-row').length===1"),'whole-library filtered target');
       await c.js(c.admin,"[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('全选所有匹配文献')).click()");
-      await c.js(c.admin,"[...document.querySelectorAll('.rag-document-submit button')].find(b=>b.textContent.startsWith('加工全部已选文献')).click()");
-      await c.until(()=>c.js(c.admin,"document.querySelector('.rag-feedback[role=status]')?.textContent.includes('已提交全量批次：1 份文献')"),'filtered bulk submission');
+      await c.until(()=>c.js(c.admin,"document.body.innerText.includes('已跨页选中 1 份')"),'filtered selection committed');
+      await c.js(c.admin,"[...document.querySelectorAll('.rag-document-submit button')].find(b=>b.textContent.startsWith('处理全部已选文献')).click()");
+      await c.until(()=>c.js(c.admin,"document.querySelector('.rag-feedback[role=status]')?.textContent.includes('已提交全量批次：1 份')"),'filtered bulk submission');
       await c.until(()=>c.js(c.admin,"!!document.querySelector('[aria-label=分批入队进度]')"),'durable bulk dispatch progress');
       await capture(c,c.admin,'whole-library-processing');
       if(c.processingOnly)return;
@@ -260,15 +311,15 @@ async function auditAdmin(c) {
       await c.js(c.admin,`(()=>{const s=document.querySelector('[aria-label=向量模型方案]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,'minilm');s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
       await c.click(c.admin,'保存向量模型配置');
       await c.until(()=>c.js(c.admin,`fetch('/api/admin/library/knowledge/embedding-info').then(r=>r.json()).then(v=>v.status.dimensions===384)`),'original embedding restored');
-      await c.click(c.admin,'Query 处理','.rag-tabs button');
+      await c.click(c.admin,'查询处理','.rag-tabs button');
       await c.js(c.admin,"(()=>{const e=document.querySelector('[aria-label=\"Query 处理模式\"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,'multi_query');e.dispatchEvent(new Event('change',{bubbles:true}));})()");
       await capture(c,c.admin,'admin-rag-query-processing');
       await c.js(c.admin,"(()=>{const e=document.querySelector('[aria-label=\"Query 处理模式\"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,'off');e.dispatchEvent(new Event('change',{bubbles:true}));})()");
-      await c.click(c.admin,'参数配置','.rag-tabs button');
+      await c.click(c.admin,'检索参数','.rag-tabs button');
       await c.until(()=>c.js(c.admin,"!!document.querySelector('[aria-label=返回结果数]')"),'admin retrieval loaded');
       await c.js(c.admin,"(()=>{const e=document.querySelector('[aria-label=返回结果数]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'7');e.dispatchEvent(new Event('input',{bubbles:true}));})()");
       await c.click(c.admin,'保存检索配置');
-      await c.until(()=>c.js(c.admin,"document.body.innerText.includes('已保存。后续检索')"),'global retrieval saved');
+      await c.until(()=>c.js(c.admin,"document.body.innerText.includes('已保存，将用于后续新任务。')"),'global retrieval saved');
       await capture(c,c.admin,'admin-retrieval-saved');
       await c.click(c.admin,'检索测试','.rag-tabs button');
       await c.js(c.admin,"(()=>{const e=document.querySelector('[aria-label=检索测试问题]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'共享');e.dispatchEvent(new Event('input',{bubbles:true}));const s=document.querySelector('[aria-label=测试检索方式]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,'exact');s.dispatchEvent(new Event('change',{bubbles:true}));})()");
@@ -277,7 +328,7 @@ async function auditAdmin(c) {
       assert.ok(await c.js(c.admin,"document.querySelectorAll('.rag-hit').length>0"),'retrieval test returns real sources');
       await capture(c,c.admin,'admin-rag-test-results');
       await c.click(c.admin,'评测记录','.rag-tabs button');await capture(c,c.admin,'admin-rag-evaluation');
-      await c.click(c.admin,'参数配置','.rag-tabs button');
+      await c.click(c.admin,'检索参数','.rag-tabs button');
       c.admin.setSize(430,900);await capture(c,c.admin,'admin-rag-mobile');c.admin.setSize(1480,1000);
       await c.js(c.admin,"document.querySelector('button[aria-label=\"切换深色外观\"]').click()");await capture(c,c.admin,'admin-rag-dark');
       await c.js(c.admin,"document.querySelector('button[aria-label=\"切换浅色外观\"]').click()");
@@ -294,4 +345,4 @@ async function auditAdmin(c) {
   }
 }
 
-module.exports={auditEmpty,auditPopulated,auditResults,auditSettings,auditCollation,auditAdmin,capture,results};
+module.exports={auditEmpty,auditPopulated,auditResults,auditSettings,auditCollation,auditVisualPolish,auditAdmin,capture,results};

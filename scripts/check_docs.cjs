@@ -1,7 +1,7 @@
-/* Keep the two maintained guides linked to current files and startup commands. */
+/* Keep the maintained guides linked to current files and startup commands. */
 const fs=require('node:fs'),path=require('node:path'),{execFileSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..');
-const maintained=['README.md','docs/MAINTENANCE.md'];
+const maintained=['README.md','docs/MAINTENANCE.md','docs/PERFORMANCE.md'];
 const read=file=>fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'');
 const npmPattern=/\bnpm\s+(?:run\s+([A-Za-z0-9][\w:-]*)|(start|stop|test)\b)/g;
 const modulePattern=/(?:^|\s)-m\s+(backend[\w.]*)/;
@@ -63,7 +63,7 @@ function main(){
   const scripts=JSON.parse(read(path.join(root,'package.json'))).scripts;
   for(const [name,content] of Object.entries(guides))errors.push(...validateGuide(name,content,scripts,guides));
   if(errors.length){console.error(errors.join('\n'));process.exitCode=1;return;}
-  console.log('Documentation OK: 2 guides; links, npm scripts and backend CLI arguments verified.');
+  console.log(`Documentation OK: ${maintained.length} guides; links, npm scripts and backend CLI arguments verified.`);
 }
 
 module.exports={anchors,validateGuide};

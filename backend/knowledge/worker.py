@@ -1,3 +1,4 @@
+import os
 import threading,time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -17,6 +18,10 @@ class Worker:
         self.sync_callback=None
         self.research_model_settings=None
         self.research_completion=None
+        # Keep several documents in flight: while one document writes its index,
+        # others continue chunking and feeding the shared embedding queue. The
+        # embedding queue itself is what saturates the GPU (see embedding_batcher).
+        self.concurrency=max(1,min(4,int(os.environ.get('SHIXUE_INGEST_CONCURRENCY','2'))))
 
     def start(self,root):
         if not self.enabled:
@@ -31,34 +36,53 @@ class Worker:
         self.stop_event.set()
         if self.thread:self.thread.join(timeout=3)
 
-    def claim(self,research_only=False):
+    def claim(self,research_only=False,kind_only=None):
         with r.database.transaction(self.root) as connection:
             r.execute(connection,"UPDATE kb_jobs SET state='failed',error='多次意外中断，请人工重试' WHERE workspace_key=current_setting('shixue.workspace') AND state='running' AND lease_until<now() AND attempts>=3")
             # A crashed worker's lease expires; explicit failures require user retry.
+            clause="AND kind='research' " if research_only else ("AND kind=:kind_only " if kind_only else '')
+            parameters={'owner':r.uid()}
+            if kind_only:parameters['kind_only']=kind_only
             return r.execute(connection,"UPDATE kb_jobs SET state='running',stage='starting',attempts=attempts+1,owner=:owner,"
                 "lease_until=now()+interval '45 seconds',updated_at=now() WHERE id=(SELECT id FROM kb_jobs "
-                "WHERE workspace_key=current_setting('shixue.workspace') AND kind<>'collaboration' "+("AND kind='research' " if research_only else '')+"AND (state='queued' OR (state='running' AND lease_until<now() AND attempts<3)) "
+                "WHERE workspace_key=current_setting('shixue.workspace') AND kind<>'collaboration' "+clause+"AND (state='queued' OR (state='running' AND lease_until<now() AND attempts<3)) "
                 "AND NOT EXISTS (SELECT 1 FROM kb_research_runs rr JOIN kb_collaboration_nodes n ON n.research_run_id=rr.id JOIN kb_collaboration_runs t ON t.id=n.collaboration_id "
                 "WHERE rr.job_id=kb_jobs.id AND (SELECT count(*) FROM kb_collaboration_nodes sibling JOIN kb_research_runs sr ON sr.id=sibling.research_run_id "
                 "JOIN kb_jobs sj ON sj.id=sr.job_id WHERE sibling.collaboration_id=t.id AND sj.state='running' AND sj.lease_until>now()) >= COALESCE((t.request->>'max_parallel')::integer,2)) "
-                "ORDER BY CASE WHEN state='running' THEN 0 ELSE 1 END,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *",owner=r.uid()).mappings().first()
+                "ORDER BY CASE WHEN state='running' THEN 0 ELSE 1 END,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *",**parameters).mappings().first()
 
     def loop(self):
-        # Research tasks may overlap; all existing mutation jobs remain exclusive.
-        pending=[]
-        with ThreadPoolExecutor(max_workers=2,thread_name_prefix='research-worker') as pool:
+        # Index jobs may overlap: one slot embeds on the shared GPU model while
+        # another chunks text or writes the previous document to PostgreSQL.
+        research=[]
+        index=[]
+        with ThreadPoolExecutor(max_workers=2,thread_name_prefix='research-worker') as research_pool, \
+             ThreadPoolExecutor(max_workers=self.concurrency,thread_name_prefix='index-worker') as index_pool:
             while not self.stop_event.is_set():
                 try:
-                    pending=[future for future in pending if not future.done()]
+                    research=[future for future in research if not future.done()]
+                    index=[future for future in index if not future.done()]
                     if self.sync_callback and self.sync_callback() is False:
                         self.stop_event.wait(1);continue
                     if self.research_model_settings:
                         from .collaboration import advance
                         advance(self.root,self.research_model_settings())
-                    if len(pending)<2:
-                        job=self.claim(research_only=bool(pending))
+                    filled=0
+                    while len(index)<self.concurrency:
+                        job=self.claim(kind_only='index')
+                        if not job:break
+                        index.append(index_pool.submit(self.run,dict(job)))
+                        filled+=1
+                    if filled:continue
+                    if len(research)<2:
+                        job=self.claim(research_only=True)
                         if job:
-                            if job['kind']=='research':pending.append(pool.submit(self.run,dict(job)))
+                            research.append(research_pool.submit(self.run,dict(job)))
+                            continue
+                    if not index and not research:
+                        job=self.claim()
+                        if job:
+                            if job['kind']=='research':research.append(research_pool.submit(self.run,dict(job)))
                             else:self.run(dict(job))
                             continue
                     self.stop_event.wait(.5)
@@ -126,14 +150,15 @@ class Worker:
             else:raise HTTPException(400,'不支持的后台任务')
             check()
             with r.database.transaction(self.root) as connection:
-                r.execute(connection,"UPDATE kb_jobs SET state='succeeded',stage='complete',progress=100,result=CAST(:r AS jsonb),error='',lease_until=NULL,updated_at=now() WHERE id=:id AND owner=:owner AND state='running' AND lease_until>clock_timestamp()",id=identifier,owner=owner,r=r.j(result))
+                r.execute(connection,"UPDATE kb_jobs SET state='succeeded',stage='complete',progress=100,result=CAST(:r AS jsonb)||CASE WHEN result ? 'diagnostic_history' THEN jsonb_build_object('diagnostic_history',result->'diagnostic_history') ELSE '{}'::jsonb END,error='',lease_until=NULL,updated_at=now() WHERE id=:id AND owner=:owner AND state='running' AND lease_until>clock_timestamp()",id=identifier,owner=owner,r=r.j(result))
         except Cancelled:
             pass # Cancelled tasks stay cancelled; stopped workers recover after lease expiry.
         except Exception as error:
-            message=error.detail if isinstance(error,HTTPException) else '处理失败，请检查原件、模型文件或数据库状态后重试'
+            from .failure_diagnostics import capture
+            failure=capture(error,last_progress[0] or 'starting',job.get('attempts'))
             try:
                 with r.database.transaction(self.root) as connection:
-                    r.execute(connection,"UPDATE kb_jobs SET state='failed',error=:error,lease_until=NULL,updated_at=now() WHERE id=:id AND owner=:owner AND state='running' AND lease_until>clock_timestamp()",id=identifier,owner=owner,error=str(message)[:500])
+                    r.execute(connection,"UPDATE kb_jobs SET state='failed',error=:error,result=COALESCE(result,'{}'::jsonb)||jsonb_build_object('diagnostic',CAST(:diagnostic AS jsonb),'diagnostic_history',COALESCE(result->'diagnostic_history','[]'::jsonb)||jsonb_build_array(CAST(:diagnostic AS jsonb))),lease_until=NULL,updated_at=now() WHERE id=:id AND owner=:owner AND state='running' AND lease_until>clock_timestamp()",id=identifier,owner=owner,error=failure['summary'],diagnostic=r.j(failure))
             except Exception:pass
         finally:finished.set();thread.join(timeout=1)
 

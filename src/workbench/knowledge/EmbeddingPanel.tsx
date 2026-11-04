@@ -1,5 +1,6 @@
 import {useEffect,useState} from 'react';
 import {request} from '../api';
+import IndexHistoryPanel from './IndexHistoryPanel';
 export type Embedding={provider:'local'|'openai_compatible';model:string;dimensions:number;base_url:string;send_dimensions:boolean;credential_id:string|null;api_key_env:'SHIXUE_EMBEDDING_API_KEY'|'OPENAI_API_KEY'|'DASHSCOPE_API_KEY';batch_size:number;timeout_seconds:number;document_prefix:string;query_prefix:string;revision:string};
 type Availability={state:'available'|'missing'|'incomplete'|'preparing'|'unknown'|'external';bytes:number;message:string;progress?:number;estimated_bytes?:number};
 type Preset=Partial<Embedding>&{id:string;name:string;provider:Embedding['provider'];model:string;dimensions:number;min_dimensions?:number;max_dimensions?:number;allowed_dimensions?:number[];availability?:Availability};
@@ -43,5 +44,6 @@ export default function EmbeddingPanel({value,onChange,onSave,onSecretDirty,dirt
     <div className="chunk-analysis"><strong>配置生效与索引重建</strong><p>保存用于新入库和后续查询，已排队任务保留原配置。已有文献需显式重建索引，新索引完成后才切换。</p><small>已保存模型对应索引 {info?.status.matching_indexes??'—'} 份 · 其他模型索引 {info?.status.other_model_indexes??'—'} 份</small></div>
     {pending&&<p role="status" className="rag-hint">{job?.state==='queued'?'下载任务排队中':job?.stage==='verify_embedding'?'正在校验模型':'后台正在下载与载入模型'}</p>}{job?.state==='failed'&&<p className="rag-hint">最近准备失败：{job.error}</p>}
     <div className="embedding-actions"><button type="button" className="button-primary" disabled={busy||working||!value.model.trim()||!(dirty||apiKey.trim())} onClick={()=>void save()}>保存向量模型配置</button><button type="button" className="button-secondary" disabled={busy||working||!!apiKey.trim()||!value.model.trim()} onClick={()=>void test()}>测试当前模型</button>{value.provider==='local'&&<button type="button" className="button-secondary" disabled={busy||working||pending} onClick={()=>void prepare()}>{availability?.state==='available'?'重新准备本地模型':'准备本地模型'}</button>}</div><p className="rag-hint">测试只发送固定句“文献向量服务连接测试”和“查找相关文献”。接口服务可能计费；本地测试仅用缓存权重。</p>
+    <IndexHistoryPanel/>
   </section>;
 }

@@ -10,11 +10,18 @@ class BulkNative(unittest.TestCase):
     from tests.test_rag_pipeline import PipelineNative as _Fixture
     setUpClass=classmethod(_Fixture.setUpClass.__func__)
     tearDownClass=classmethod(_Fixture.tearDownClass.__func__)
-    setUp=_Fixture.setUp
     tearDown=_Fixture.tearDown
     checked=_Fixture.checked
     document=_Fixture.document
     save=_Fixture.save
+
+    def setUp(self):
+        from tests.test_rag_pipeline import PipelineNative
+        PipelineNative.setUp(self)
+        # Each case gets an independent dispatch state, just as queued/running
+        # child jobs are reset by the common fixture.
+        with r.database.transaction(self.root) as db:
+            r.execute(db,"UPDATE kb_jobs SET state='cancelled' WHERE kind='rag_batch' AND state='dispatching'")
 
     def seed(self,prefix,count):
         from backend.knowledge.ingestion import publish
@@ -37,6 +44,78 @@ class BulkNative(unittest.TestCase):
         owner=r.uid()
         with r.database.transaction(self.root) as db:r.execute(db,"UPDATE kb_jobs SET owner=:owner,lease_until=now()+interval '30 seconds' WHERE id=:id",id=identifier,owner=owner)
         return owner
+
+    def test_monitor_separates_not_dispatched_skipped_and_cancelled(self):
+        items=self.seed('监控状态夹具',3)
+        batch=self.submitted('监控状态夹具')
+        url='/api/knowledge/rag-documents?batch_id='+batch['id']
+        waiting=self.checked(self.client.get(url))['processing_progress']['batch']
+        self.assertEqual(waiting['pending_dispatch'],3)
+        self.assertEqual(waiting['queued'],0)
+        self.assertEqual(waiting['finished'],0)
+        # A changed original is deliberately skipped during dispatch, not cancelled.
+        with r.database.transaction(self.root) as db:
+            r.execute(db,'UPDATE kb_editions SET active_revision=NULL WHERE id=:id',id=items[0]['id'])
+        bulk.dispatch_slice(self.root,batch['id'],self.own(batch['id']))
+        dispatched=self.checked(self.client.get(url))['processing_progress']['batch']
+        self.assertEqual(dispatched['skipped'],1)
+        self.assertEqual(dispatched['cancelled'],0)
+        self.assertEqual(dispatched['queued'],2)
+        self.assertEqual(dispatched['pending_dispatch'],0)
+        bulk.control(self.root,batch['id'],'cancel')
+        cancelled=self.checked(self.client.get(url))['processing_progress']['batch']
+        self.assertEqual(cancelled['skipped'],1)
+        self.assertEqual(cancelled['cancelled'],2)
+        self.assertEqual(cancelled['finished'],3)
+
+    def test_monitor_distinguishes_dispatch_failure_from_document_failure(self):
+        self.seed('入队失败监控夹具',2)
+        batch=self.submitted('入队失败监控夹具')
+        with r.database.transaction(self.root) as db:
+            r.execute(db,"UPDATE kb_jobs SET state='failed' WHERE id=:id",id=batch['id'])
+        snapshot=self.checked(self.client.get('/api/knowledge/rag-documents?batch_id='+batch['id']))['processing_progress']['batch']
+        self.assertEqual(snapshot['dispatch_failed'],2)
+        self.assertEqual(snapshot['failed'],0)
+        self.assertEqual(snapshot['queued'],0)
+        self.assertEqual(snapshot['finished'],2)
+
+    def test_monitor_keeps_original_submission_time_after_dispatch(self):
+        from datetime import datetime
+        self.seed('批次时间夹具',2)
+        batch=self.submitted('批次时间夹具')
+        bulk.dispatch_slice(self.root,batch['id'],self.own(batch['id']))
+        with r.database.transaction(self.root) as db:
+            submitted=r.one(db,'SELECT created_at FROM kb_jobs WHERE id=:id',id=batch['id'])['created_at']
+            # All targets now have child tasks created after the controller.
+            # DISTINCT ON must not replace the true submission with child time.
+            r.execute(db,"UPDATE kb_jobs SET created_at=:submitted+interval '2 minutes' WHERE payload->>'processing_batch'=:batch",submitted=submitted,batch=batch['id'])
+        monitor=self.checked(self.client.get('/api/knowledge/rag-documents?batch_id='+batch['id']))['processing_progress']
+        self.assertEqual(datetime.fromisoformat(monitor['batch']['submitted_at']),submitted)
+
+    def test_monitor_keeps_one_snapshot_while_worker_advances(self):
+        items=self.seed('监控一致性夹具',1)
+        result=self.checked(self.client.post('/api/knowledge/rag-process',json={'documents':items}))
+        identifier=result['jobs'][0]['id']
+        original=r.one;advanced=[]
+        def advance(db,query,**parameters):
+            value=original(db,query,**parameters)
+            if query.endswith(' submitted') and not advanced:
+                advanced.append(True)
+                with r.database.transaction(self.root) as writer:
+                    r.execute(writer,"UPDATE kb_jobs SET state='running',stage='embedding',lease_until=now()+interval '45 seconds' WHERE id=:id",id=identifier)
+            return value
+        with patch.object(r,'one',side_effect=advance):
+            monitor=self.checked(self.client.get('/api/knowledge/rag-documents?batch_id='+result['batch_id']))['processing_progress']
+        self.assertTrue(advanced)
+        self.assertEqual(monitor['batch']['queued'],1)
+        self.assertEqual(monitor['batch']['running'],0)
+        self.assertEqual(monitor['ingestion_queue']['queued'],1)
+        self.assertEqual(monitor['ingestion_queue']['running'],0)
+        self.assertEqual(monitor['active_jobs'],[])
+        next_monitor=self.checked(self.client.get('/api/knowledge/rag-documents?batch_id='+result['batch_id']))['processing_progress']
+        self.assertEqual(next_monitor['batch']['running'],1)
+        self.assertEqual(next_monitor['ingestion_queue']['running'],1)
+        self.assertEqual(next_monitor['active_jobs'][0]['id'],identifier)
 
     def test_all_matching_documents_span_pages_and_keep_frozen_model(self):
         from backend.knowledge.ingestion import process_index

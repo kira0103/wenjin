@@ -94,6 +94,14 @@ app.whenReady().then(async()=>{
     await screenshot(admin,'admin-library-'+label);
   }
   admin.setSize(1480,1000);await delay(100);
+  await click(admin,'检索配置','nav button');
+  await until(()=>js(admin,"!!document.querySelector('.rag-overall-progress')||!!document.querySelector('.rag-documents')"),'rag processing page');
+  await delay(320);await screenshot(admin,'audit-rag-processing');
+  admin.setSize(1920,1080);await delay(260);await screenshot(admin,'audit-rag-processing-wide');
+  admin.setSize(1480,1000);await delay(160);
+  await click(admin,'系统文献库','nav button');
+  await until(()=>js(admin,"!!document.querySelector('.kb-file-layout')"),'back to shared library');
+  await until(()=>js(admin,"document.querySelector('.kb-file-groups')?.textContent.includes('共享史料')"),'shared group restored');
   if(process.env.SHIXUE_GUI_LIBRARY_ONLY==='1'){
     fs.writeFileSync(path.join(output,'report.json'),JSON.stringify({library_only:true,empty_state:true,shared_library:true,mobile_single_column:true,ultrawide_layout:true,renderer_errors:errors}));
     console.log(JSON.stringify({verified:true,output}));return;
@@ -149,7 +157,7 @@ app.whenReady().then(async()=>{
   await screenshot(user,'audit-document-info-modal');
   await click(user,'关闭','.modal-actions button');
   await screenshot(user,'user-shared-document');
-  await click(user,'统一检索','.kb-tabs button');await pageAudit.capture(auditContext,user,'library-search');
+  await click(user,'正文检索','.kb-tabs button');await pageAudit.capture(auditContext,user,'library-search');
   await click(user,'资料目录','.kb-tabs button');
   await click(user,'我的文献库','button[role=tab]');
   await until(()=>js(user,"!!document.querySelector('.kb-file-layout')&&[...document.querySelectorAll('button')].some(button=>button.textContent==='导入文献')"),'personal library imports');
@@ -164,11 +172,12 @@ app.whenReady().then(async()=>{
   await pageAudit.auditResults(auditContext);
   await pageAudit.auditSettings(auditContext);
   await pageAudit.auditCollation(auditContext,edition.group_id);
+  await pageAudit.auditVisualPolish(auditContext);
   await click(user,'个人设置');
-  await until(()=>js(user,"!!document.querySelector('.settings-hub-tabs')"),'personal settings');
-  const tabs=await js(user,"[...document.querySelectorAll('.settings-hub-tabs button')].map(item=>item.textContent.trim())");
+  await until(()=>js(user,"!!document.querySelector('.settings-subnav')"),'personal settings');
+  const tabs=await js(user,"[...document.querySelectorAll('.settings-subnav button')].map(item=>item.textContent.trim())");
   assert.ok(!tabs.includes('助手与 Skill'));assert.ok(!tabs.includes('检索配置'));assert.ok(!tabs.includes('模型连接'));assert.ok(!tabs.includes('数据与备份'));
-  await click(user,'账号与安全','.settings-hub-tabs button');await screenshot(user,'user-account');
+  await click(user,'账号与安全','.settings-subnav button');await screenshot(user,'user-account');
   await user.loadURL(base+'/admin/');await until(()=>js(user,"document.body.innerText.includes('这里是管理员工作区')"),'admin route denied');
   await screenshot(user,'user-admin-denied');
   await click(admin,'运行概览','nav button');await click(admin,'刷新');

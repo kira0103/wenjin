@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from backend import submissions as s
+from backend import submissions as s, english_journals
 
 
 class SubmissionsTest(unittest.TestCase):
@@ -41,6 +41,7 @@ class SubmissionsTest(unittest.TestCase):
             s.migrate(db, seed=False)
         app = FastAPI()
         s.register(app, connection)
+        english_journals.register(app)
         self.client = TestClient(app)
         self.base = '/api/submissions'
 
@@ -74,6 +75,62 @@ class SubmissionsTest(unittest.TestCase):
         body = {'content': content, 'label': '测试目录'}
         report = self.post('/import/preview', body)
         return self.post('/import', {**body, 'fingerprint': report['fingerprint']}, status)
+
+    def test_english_target_is_saved_reused_and_readable_without_catalog(self):
+        item = {'id':'en-test', 'name':'Nature', 'issn':'0028-0836', 'cas_cat':'综合性期刊', 'jcr_q':'Q1'}
+        with patch.object(english_journals, 'load', return_value={'journals':[item]}):
+            response = self.client.get(self.base+'/english-journals/en-test')
+            self.assertEqual(response.json()['issn'], '0028-0836')
+            paper = self.paper(target_journal_id='english:en-test')
+            self.assertEqual(paper['target_journal_name'], 'Nature')
+            another = self.paper(target_journal_id='english:en-test')
+            target = next(j for j in self.overview()['journals'] if j['id']==paper['target_journal_id'])
+            self.assertEqual(target['catalog_kind'], 'english')
+            self.assertEqual(target['issn'], '0028-0836')
+            self.assertEqual(another['target_journal_id'], paper['target_journal_id'])
+        with patch.object(english_journals, 'load', side_effect=RuntimeError('catalog unavailable')):
+            paper = self.put('/papers/'+paper['id'], {**paper, 'title':'Saved English target'})
+            paper = self.action(paper, 'submit')
+            self.assertEqual(paper['attempts'][0]['journal_name'], 'Nature')
+            self.assertEqual(paper['attempts'][0]['journal_id'], 'english:en-test')
+            with self.connection() as db:
+                s.migrate(db, seed=False)
+                self.assertEqual(db.execute('SELECT count(*) FROM submission_english_links').fetchone()[0], 1)
+
+    def test_invalid_english_target_and_failed_paper_are_atomic(self):
+        item = {'id':'en-test', 'name':'Nature'}
+        with patch.object(english_journals, 'load', return_value={'journals':[item]}):
+            self.post('/papers', {'title':'Missing', 'target_journal_id':'english:unknown'}, 404)
+            self.post('/papers', {'title':'Wrong project', 'target_journal_id':'english:en-test', 'project_id':'missing'}, 404)
+            self.assertEqual(self.client.get(self.base+'/english-journals/unknown').status_code, 404)
+        with self.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM submission_english_links').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT count(*) FROM submission_papers').fetchone()[0], 0)
+
+    def test_chinese_and_english_targets_keep_distinct_ids_and_submission_history(self):
+        chinese = self.journal('Nature')
+        with patch.object(english_journals, 'load', return_value={'journals':[{'id':'en-test', 'name':'Nature'}]}):
+            paper = self.paper(target_journal_id='english:en-test')
+            self.assertNotEqual(paper['target_journal_id'], chinese['id'])
+            paper = self.action(paper, 'submit')
+            paper = self.action(paper, 'reject')
+            paper = self.action(paper, 'submit', journal_id=chinese['id'])
+            self.assertEqual([a['journal_id'] for a in paper['attempts']], ['english:en-test', chinese['id']])
+
+    def test_public_catalog_keeps_english_reference_private_and_classified(self):
+        central=Path(self.temp.name)/'shared';central.mkdir()
+        with closing(sqlite3.connect(central/'library.sqlite')) as db:
+            db.row_factory=sqlite3.Row
+            s.migrate(db,seed=False)
+            s.import_catalog(db,s.ImportRequest(content='期刊名称,学科门类,期刊等级,官网,投稿地址\n历史研究,历史,C刊,,\n',label='系统目录'))
+            db.commit()
+        with patch.object(english_journals,'load',return_value={'journals':[{'id':'en-test','name':'Nature'}]}), patch.dict('os.environ',{'SHIXUE_LIBRARY_ROOT':str(central)}):
+            paper=self.paper(target_journal_id='english:en-test')
+            catalog=self.overview()['journals']
+            self.assertEqual([j['name'] for j in catalog if j.get('catalog_kind')!='english'],['历史研究'])
+            self.assertEqual(next(j['name'] for j in catalog if j['id']==paper['target_journal_id']),'Nature')
+        with closing(sqlite3.connect(central/'library.sqlite')) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM submission_english_links').fetchone()[0],0)
 
     def test_optional_seed_and_restart_idempotency(self):
         seed = Path(self.temp.name) / 'journals.csv'

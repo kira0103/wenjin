@@ -20,7 +20,37 @@ from .auth import same_origin
 from .portal_accounts import Accounts, AccountError, SESSION_SECONDS, public_user
 from .portal_fleet import WorkspaceFleet
 
-COOKIE = 'wenjin_portal_session'
+LEGACY_COOKIE = 'wenjin_portal_session'
+COOKIE = APP_COOKIE = 'wenjin_portal_app_session'
+ADMIN_COOKIE = 'wenjin_portal_admin_session'
+
+
+def portal_scope(request):
+    explicit = request.headers.get('X-Wenjin-Portal')
+    if explicit is not None:
+        if explicit not in {'app', 'admin'}:
+            raise HTTPException(400, '无效的登录入口')
+        return explicit
+    # Native image/download requests have no custom headers. Their same-origin
+    # referring page identifies the entry without falling back to the other cookie.
+    try:
+        referring = urlsplit(request.headers.get('referer', ''))
+    except ValueError:
+        referring = urlsplit('')
+    if referring.scheme == request.url.scheme and referring.netloc == request.url.netloc:
+        if re.match(r'^/admin(?:/|$)', referring.path):
+            return 'admin'
+        if re.match(r'^/app(?:/|$)', referring.path):
+            return 'app'
+    return 'admin' if request.url.path.startswith('/api/admin') else 'app'
+
+
+def session_cookie(request):
+    return ADMIN_COOKIE if request.state.portal_scope == 'admin' else APP_COOKIE
+
+
+def session_token(request):
+    return request.cookies.get(session_cookie(request), '')
 
 
 class UserCreate(BaseModel):
@@ -127,17 +157,23 @@ def create_app(root, ui_dir=None, fleet=None):
         if path.startswith('/api/'):
             if request.method not in {'GET', 'HEAD'} and not same_origin(request):
                 return JSONResponse({'detail': '请求来源与服务不一致'}, status_code=403)
-            user = await run_in_threadpool(accounts.session, request.cookies.get(COOKIE, ''))
+            try:
+                request.state.portal_scope = portal_scope(request)
+            except HTTPException as error:
+                return JSONResponse({'detail': error.detail}, status_code=error.status_code)
+            user = await run_in_threadpool(accounts.session, session_token(request))
+            if user and request.state.portal_scope == 'admin' and user['role'] != 'admin':
+                user = None
             request.state.user = user
             bound_account = request.headers.get('X-Wenjin-Account')
-            if user and bound_account and bound_account != user['id'] and (path != '/api/session' or request.method == 'DELETE'):
+            if user and bound_account and bound_account != user['id'] and not (path == '/api/session' and request.method == 'POST'):
                 return JSONResponse({'detail': '当前浏览器已切换账号，请重新登录此页面', 'code': 'account_changed'}, status_code=401)
             if path != '/api/session':
                 if not user:
                     return JSONResponse({'detail': '请先登录'}, status_code=401)
                 if user['password_change_required'] and path not in {'/api/me', '/api/me/password'}:
                     return JSONResponse({'detail': '请先修改临时密码', 'code': 'password_change_required'}, status_code=403)
-                if path.startswith('/api/admin') and user['role'] != 'admin':
+                if path.startswith('/api/admin') and (user['role'] != 'admin' or request.state.portal_scope != 'admin'):
                     return JSONResponse({'detail': '此操作需要管理员权限'}, status_code=403)
         response = await call_next(request)
         if path.startswith('/api/'):
@@ -151,7 +187,7 @@ def create_app(root, ui_dir=None, fleet=None):
     @application.get('/api/session')
     def session(request: Request):
         user = request.state.user
-        return {'authenticated': bool(user), 'mode': 'portal', 'user': public_user(user) if user else None}
+        return {'authenticated': bool(user), 'mode': 'portal', 'portal': request.state.portal_scope, 'user': public_user(user) if user else None}
 
     @application.post('/api/session')
     async def login(request: Request):
@@ -171,15 +207,20 @@ def create_app(root, ui_dir=None, fleet=None):
             token, user = await run_in_threadpool(accounts.authenticate, username, password, request.client.host if request.client else '')
         except AccountError as error:
             raise HTTPException(401, str(error)) from None
-        response = JSONResponse({'authenticated': True, 'mode': 'portal', 'user': user})
-        response.set_cookie(COOKIE, token, max_age=SESSION_SECONDS, httponly=True, secure=request.url.scheme == 'https', samesite='strict', path='/api')
+        if request.state.portal_scope == 'admin' and user['role'] != 'admin':
+            accounts.logout(token)
+            raise HTTPException(403, '普通账号请从用户端登录，管理端需要管理员账号')
+        response = JSONResponse({'authenticated': True, 'mode': 'portal', 'portal': request.state.portal_scope, 'user': user})
+        response.set_cookie(session_cookie(request), token, max_age=SESSION_SECONDS, httponly=True, secure=request.url.scheme == 'https', samesite='strict', path='/api')
+        response.delete_cookie(LEGACY_COOKIE, path='/api')
         return response
 
     @application.delete('/api/session')
     def logout(request: Request):
-        accounts.logout(request.cookies.get(COOKIE, ''))
+        accounts.logout(session_token(request))
         response = JSONResponse({'authenticated': False, 'mode': 'portal'})
-        response.delete_cookie(COOKIE, path='/api')
+        response.delete_cookie(session_cookie(request), path='/api')
+        response.delete_cookie(LEGACY_COOKIE, path='/api')
         return response
 
     @application.get('/api/me')
@@ -191,7 +232,7 @@ def create_app(root, ui_dir=None, fleet=None):
         user = request.state.user
         accounts.reset_password(user['id'], payload.password.get_secret_value(), user['id'], payload.current_password.get_secret_value())
         response = JSONResponse({'changed': True, 'reauthenticate': True})
-        response.delete_cookie(COOKIE, path='/api')
+        response.delete_cookie(session_cookie(request), path='/api')
         return response
 
     @application.get('/api/admin/overview')
@@ -304,7 +345,7 @@ def create_app(root, ui_dir=None, fleet=None):
         except RuntimeError as error:
             raise HTTPException(503, str(error)) from None
         if request.method == 'GET' and re.fullmatch(r'/api/knowledge/editions/[a-fA-F0-9-]{36}/delete-preview', route):
-            current = await run_in_threadpool(accounts.session, request.cookies.get(COOKIE,''))
+            current = await run_in_threadpool(accounts.session, session_token(request))
             if not current or current['id'] != request.state.user['id']:
                 raise HTTPException(401,'登录状态已更新，请重新登录')
             if current['role'] != 'admin':raise HTTPException(403,'此操作需要管理员权限')
@@ -328,7 +369,7 @@ def create_app(root, ui_dir=None, fleet=None):
         return await forward(request, target, route)
 
     async def forward(request, target, route, library=False):
-        current = await run_in_threadpool(accounts.session, request.cookies.get(COOKIE, ''))
+        current = await run_in_threadpool(accounts.session, session_token(request))
         if not current or current['id'] != request.state.user['id']:
             raise HTTPException(401, '登录状态已更新，请重新登录')
         if library and current['role'] != 'admin':

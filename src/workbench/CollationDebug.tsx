@@ -1,3 +1,4 @@
+import PageHeading from './PageHeading';
 import { workspaceStorage as localStorage } from './storage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, FlaskConical, LoaderCircle, Play, Save } from 'lucide-react';
@@ -83,7 +84,7 @@ export function CollationDebug({ project, materials, attemptId, onBack, onSettin
   const model = draft.attempt_id && seed ? seed.model : saved.model;
   return <div className="page-container collation-debug">
     <button className="button-quiet back-link" onClick={onBack}><ArrowLeft size={16} />返回古籍点校</button>
-    <div className="welcome-row"><div><h1><FlaskConical size={24} />点校调试</h1><p>先用一段样本文字验证提示词和请求参数，再用于批量点校。</p></div><button className="button-secondary" onClick={onSettings}>模型与设置</button></div>
+    <PageHeading title={<><FlaskConical size={24} />点校调试</>} description={<>先用一段样本文字验证提示词和请求参数，再用于批量点校。</>} actions={<><button className="button-secondary" onClick={onSettings}>模型与设置</button></>}/>
     <p className="debug-model">{model.provider_name} · {model.model || '未配置模型'} · {model.base_url || '请先配置连接'}<span>项目方案版本 {saved.revision}</span></p>
     <p className="scope-note">每次测试只请求一次，不自动重试，不写入点校稿。测试会调用已配置模型并产生对应费用；有活动批次时请先暂停并等待当前请求返回。</p>
     {error && <p className="persistent-error" role="alert">{error}</p>}{notice && <p className="connection-success" role="status">{notice}</p>}

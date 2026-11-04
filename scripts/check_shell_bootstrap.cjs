@@ -23,7 +23,7 @@ async function main(){const reports=[];
       const info=await evaluate('window.desktop.workspaceInfo()');if(path.resolve(info.dataDir)!==path.resolve(root))throw Error('Configured workspace changed');
       await evaluate("document.querySelector('button[aria-label=\"文献库\"]').click()");
       await until(()=>evaluate("!!document.querySelector('.kb-file-groups')"),'library startup');
-      const tabs=await evaluate("[...document.querySelectorAll('.kb-tabs button')].map(b=>b.textContent.trim())");if(JSON.stringify(tabs)!==JSON.stringify(['资料目录','统一检索']))throw Error('Unexpected tabs');
+      const tabs=await evaluate("[...document.querySelectorAll('.kb-tabs button')].map(b=>b.textContent.trim())");if(JSON.stringify(tabs)!==JSON.stringify(['资料目录','正文检索']))throw Error('Unexpected tabs');
       if(fs.existsSync(path.join(portable,'史学工作台验证数据'))||fs.existsSync(path.join(portable,'工作台数据')))throw Error('Version directory received a duplicate workspace');
       reports.push({portableDir:portable,dataDir:info.dataDir,tabs,no_version_data_copy:true,window_ms:windowMs,connected_ms:Date.now()-started,early_stage:earlyStatus.stage,custom_titlebar:chrome.titlebar,titlebar_draggable:chrome.drag==='drag',default_theme:chrome.theme});
       await until(()=>evaluate("!!document.querySelector('.kb-group-card') && document.querySelectorAll('.kb-file-groups strong').length>0"),'catalog records');const screenshot=await protocol.send('Page.captureScreenshot');fs.writeFileSync(path.join(output,'packaged-main-window.png'),Buffer.from(screenshot.data,'base64'));

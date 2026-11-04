@@ -12,7 +12,12 @@ from .embedding_config import EmbeddingOptions,LEGACY_MODEL,space,current
 MODEL = LEGACY_MODEL
 logger=logging.getLogger(__name__)
 _lock=threading.RLock()
+# ONNX sessions are thread-safe and release the GIL while the GPU runs. Two
+# concurrent calls let one thread tokenize the next batch while another batch is
+# already executing on the GPU, without duplicating the model in VRAM.
+_inference_slots=threading.Semaphore(max(1,int(os.environ.get('SHIXUE_EMBED_INFLIGHT','2'))))
 _models={}
+_accelerated={}
 _ocr=None
 _embedding_context=ContextVar('embedding_context',default=None)
 MODEL_FILES={'tokenizer.json','tokenizer_config.json','config.json','special_tokens_map.json'}
@@ -37,14 +42,18 @@ def accelerated_model(root,model):
     missing, unvalidated or unreadable copy is ignored and the original model is used.
     """
     if os.environ.get('SHIXUE_EMBEDDING_FP16','1')=='0':return None
+    from .embedding_cache import cache_directory
+    folder=cache_directory(root)/'fp16'/model.replace('/','--')
+    resolved=str(folder)
+    if resolved in _accelerated:return _accelerated[resolved]
+    found=None
     try:
-        from .embedding_cache import cache_directory
-        folder=cache_directory(root)/'fp16'/model.replace('/','--')
         info=json.loads((folder/'meta.json').read_text(encoding='utf-8'))
-        if info.get('model')!=model or not info.get('validated'):return None
-        return folder if (folder/'model.onnx').is_file() else None
+        if info.get('model')==model and info.get('validated') and (folder/'model.onnx').is_file():found=folder
     except (OSError,ValueError,TypeError):
-        return None
+        found=None
+    _accelerated[resolved]=found
+    return found
 
 
 def model_identity(model,directory):
@@ -120,7 +129,7 @@ def embed(root, values):
         from .embedding_service import remote_vectors
         return remote_vectors(root,values,config),'api:'+space(config)
     model,key=embedding_model(root,config=config)
-    with _lock:vectors=[vector.tolist() for vector in model.embed(values,batch_size=config['batch_size'])]
+    with _inference_slots:vectors=[vector.tolist() for vector in model.embed(values,batch_size=config['batch_size'])]
     from .embedding_service import validate_vectors
     vectors=validate_vectors(vectors,len(values),config['dimensions'])
     legacy=config['model']==LEGACY_MODEL and not config['document_prefix'] and not config['query_prefix'] and not config['revision']

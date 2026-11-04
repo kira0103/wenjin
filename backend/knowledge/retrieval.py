@@ -172,11 +172,25 @@ def _search(root,payload,trace,connection=None):
             lists.append(('normalized_substring',substring))
             trace.stage('normalized_substring',begin,candidates=len(substring),candidate_limit=values['n'],possibly_truncated=len(substring)==values['n'])
         available=[item for item in snapshot if item['model_key'] and item['index_state']=='ready']
+        # A bulk maintenance window can temporarily drop the model's HNSW index.
+        # Index metadata still says "ready", so detect the missing physical index
+        # explicitly and degrade to lexical channels instead of scanning millions
+        # of vectors under the 5-second statement budget.
+        planned_dimensions=options['embedding']['dimensions']
+        vector_index_missing=False
+        if planned_dimensions in {384,512,768,1024,1536,2048,3072}:
+            vector_index_missing=r.execute(connection,'SELECT to_regclass(:name)',
+                                           name=f'public.kb_chunks_vectors_{planned_dimensions}').scalar() is None
         fallback_lexical=False
         if mode=='semantic' or mode=='hybrid' and options['semantic_weight']>0:
             begin=perf_counter()
             trace.data['active_stage']='semantic'
-            if not available:
+            if vector_index_missing:
+                if mode=='semantic' or not options['hybrid_fallback']:raise HTTPException(409,'向量索引正在维护（重建中），请稍后重试或改用关键词检索')
+                fallback_lexical=True
+                warnings.append('向量索引正在维护（重建中），本次使用关键词检索')
+                trace.stage('semantic',begin,outcome='maintenance',candidates=0)
+            elif not available:
                 if mode=='semantic' or not options['hybrid_fallback']:raise HTTPException(409,'当前范围还没有已完成的向量索引，请等待索引任务或先使用关键词检索')
                 fallback_lexical=True
                 warnings.append('当前范围的向量索引尚未就绪，本次使用关键词检索')

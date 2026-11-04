@@ -1,3 +1,4 @@
+import JournalSourceDetails from './JournalSourceDetails';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, RotateCcw, Search } from 'lucide-react';
 import { request } from './api';
@@ -185,36 +186,35 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
   return <section className="english-journals" aria-label="英文期刊库">
     <div className="ej-filters" role="group" aria-label="英文期刊筛选">
       <label className="ej-search"><Search size={15} aria-hidden="true" />
-        <input aria-label="搜索英文期刊刊名或 ISSN" placeholder="搜索刊名或 ISSN，如 Nature、0028-0836" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} />
+        <input aria-label="搜索英文期刊刊名或 ISSN" placeholder="搜索刊名或 ISSN" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} />
       </label>
       <label className="ej-field">学科<select aria-label="按学科筛选" value={discipline} onChange={event => change(() => setDiscipline(event.target.value))}>
         <option value="">全部学科</option>
         {disciplines.map(entry => <option key={entry.name} value={entry.name}>{entry.name}（{formatCount(entry.count)}）</option>)}
       </select></label>
-      <label className="ej-field">JCR 分区<select aria-label="按 JCR 分区筛选" value={jcr} onChange={event => change(() => setJcr(Number(event.target.value)))}>
+      <label className="ej-field">JCR<select aria-label="按 JCR 分区筛选" value={jcr} onChange={event => change(() => setJcr(Number(event.target.value)))}>
         <option value={0}>全部</option>
         {JCR_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select></label>
-      <label className="ej-field">中科院分区<select aria-label="按中科院分区筛选" value={cas} onChange={event => change(() => setCas(Number(event.target.value)))}>
+      <label className="ej-field">中科院<select aria-label="按中科院分区筛选" value={cas} onChange={event => change(() => setCas(Number(event.target.value)))}>
         <option value={0}>全部</option>
         {TIER_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select></label>
-      <label className="ej-field">新锐分区<select aria-label="按新锐分区筛选" value={xr} onChange={event => change(() => setXr(Number(event.target.value)))}>
+      <label className="ej-field">新锐<select aria-label="按新锐分区筛选" value={xr} onChange={event => change(() => setXr(Number(event.target.value)))}>
         <option value={0}>全部</option>
         {TIER_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select></label>
+    </div>
+    <div className="ej-filter-summary">
       <label className="ej-check"><input type="checkbox" aria-label="只看中科院 Top" checked={top} onChange={event => change(() => setTop(event.target.checked))} />只看中科院 Top</label>
       <label className="ej-check"><input type="checkbox" aria-label="只看新锐 Top" checked={xrTop} onChange={event => change(() => setXrTop(event.target.checked))} />只看新锐 Top</label>
       <label className="ej-field">排序<select aria-label="排序方式" value={sort} onChange={event => change(() => setSort(event.target.value as SortKey))}>
         {SORT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select></label>
-      <button type="button" className="button-secondary ej-reset" onClick={reset}><RotateCcw size={14} aria-hidden="true" />重置筛选</button>
+      <button type="button" className="button-secondary ej-reset" aria-label="重置筛选" onClick={reset}><RotateCcw size={14} aria-hidden="true"/>重置</button>
+      <p className="ej-stats" role="status" aria-live="polite"><span>命中 <strong>{data?formatCount(data.total):'—'}</strong> 种 · 第 {shownPage} / {shownPages} 页{loading&&<span className="ej-loading">正在更新…</span>}</span></p>
+      {data&&<JournalSourceDetails><p>{VERSION_NOTE}</p><p>{data.meta.label} · 共 {formatCount(data.meta.count)} 种 · 生成于 {data.meta.generated_at}</p>{Object.entries(data.meta.sources).map(([key,value])=><p key={key}>{value}</p>)}{data.meta.notes.map((note,index)=><p key={index}>{note}</p>)}<p>分区与 IF 仅作投稿参考，投稿前请核对期刊当前收录状态与要求。</p></JournalSourceDetails>}
     </div>
-
-    <p className="ej-stats" role="status" aria-live="polite">
-      <span>命中 <strong>{data ? formatCount(data.total) : '—'}</strong> 种 · 第 {shownPage} / {shownPages} 页{loading && <span className="ej-loading">正在更新…</span>}</span>
-      <span className="ej-version">{VERSION_NOTE}</span>
-    </p>
 
     {error && <div role="alert" className="scope-warning ej-error">
       <strong>{error}</strong>
@@ -252,13 +252,7 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
       {data.meta.count > 0 && <span className="ej-library-total">库内 {formatCount(data.meta.count)} 种</span>}
     </div>}
 
-    {data && <details className="ej-sources">
-      <summary>数据来源与统计口径</summary>
-      <p>{data.meta.label} · 共 {formatCount(data.meta.count)} 种 · 生成于 {data.meta.generated_at}</p>
-      {Object.entries(data.meta.sources).map(([key, value]) => <p key={key}>{value}</p>)}
-      {data.meta.notes.map((note, index) => <p key={index}>{note}</p>)}
-      <p>分区与 IF 仅作投稿参考，投稿前请核对期刊当前收录状态与要求。</p>
-    </details>}
+
   </section>;
 }
 

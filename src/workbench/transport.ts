@@ -31,7 +31,8 @@ export async function send(request: ApiRequest, signal?:AbortSignal): Promise<Ap
     if (result.status === 401) window.dispatchEvent(new Event('wenjin:unauthorized'));
     return result;
   }
-  const headers: Record<string, string> = {};
+  const entry=window.location?.pathname;
+  const headers: Record<string, string> = entry?{'X-Wenjin-Portal':/^\/admin(?:\/|$)/.test(entry)?'admin':'app'}:{};
   const account = currentStorageAccount();
   if (account) headers['X-Wenjin-Account'] = account;
   let body: BodyInit | undefined;

@@ -233,7 +233,7 @@ def register_features(router,root,legacy_connection,completion,model_settings):
     @router.post('/jobs/{identifier}/retry')
     def retry(identifier:UUID):
         with r.database.transaction(root()) as connection:
-            current=r.one(connection,"SELECT kind,payload FROM kb_jobs WHERE id=:id AND workspace_key=current_setting('shixue.workspace')",id=identifier)
+            current=r.one(connection,"SELECT * FROM kb_jobs WHERE id=:id AND workspace_key=current_setting('shixue.workspace')",id=identifier)
             from .shared import private_schema
             if private_schema() and current['kind'] in {'core_import','migration','export','embedding_model'}:
                 raise HTTPException(403,'此任务需要服务器维护入口')
@@ -244,6 +244,15 @@ def register_features(router,root,legacy_connection,completion,model_settings):
                     raise HTTPException(409,'该模型已有下载或校验任务，请查看现有任务')
             if current['kind'] in ('research','collaboration'):raise HTTPException(409,'请在研究助手中使用“重新研究”，以核验最新范围和模型配置')
             if current['kind']=='rag_batch':raise HTTPException(409,'请在文献加工中使用全量批次重试入口')
+            if current['kind'] in ('import','index'):
+                edition=current['payload'].get('edition_id')
+                r.execute(connection,'SELECT id FROM kb_editions WHERE id=:id FOR UPDATE',id=edition)
+                latest=r.rows(connection,"SELECT id FROM kb_jobs WHERE workspace_key=current_setting('shixue.workspace') AND kind IN ('import','index') AND payload->>'edition_id'=:edition ORDER BY CASE WHEN state IN ('queued','running') THEN 0 ELSE 1 END,created_at DESC,id DESC LIMIT 1 FOR UPDATE",edition=edition)
+                if latest and str(latest[0]['id'])!=str(identifier):raise HTTPException(409,'该文献已有后续任务，请刷新后查看最新任务')
+            if current['kind'] in ('import','index') and current['state']=='failed' and not (current['result'] or {}).get('diagnostic_history'):
+                from .failure_diagnostics import legacy
+                previous={**legacy(current['error'],current['stage']),'failed_at':str(current['updated_at']),'attempt':current['attempts']}
+                r.execute(connection,"UPDATE kb_jobs SET result=COALESCE(result,'{}'::jsonb)||jsonb_build_object('diagnostic_history',CAST(:history AS jsonb)) WHERE id=:id",id=identifier,history=r.j([previous]))
             result=r.one(connection,"UPDATE kb_jobs SET state='queued',stage='queued',owner=NULL,error='',progress=0,attempts=0,updated_at=now() WHERE id=:id AND workspace_key=current_setting('shixue.workspace') AND state IN ('failed','cancelled') RETURNING *",id=identifier)
         worker.start(root());return result
 

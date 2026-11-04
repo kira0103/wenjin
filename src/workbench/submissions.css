@@ -8,6 +8,11 @@
 .submission-tabs button[aria-selected=true] { color: var(--accent); border-color: var(--accent); }
 .submission-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 15px 0; }
 .submission-toolbar > input:not([hidden]) { flex: 1; min-width: 160px; max-width: 350px; }
+.submission-view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--surface); }
+.submission-view-toggle button { background: transparent; border: 0; padding: 7px 13px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.submission-view-toggle button + button { border-left: 1px solid var(--line); }
+.submission-view-toggle button[aria-pressed=true] { background: var(--surface-2); color: var(--text); }
+.submission-view-toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .submission-check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; white-space: nowrap; }
 .submission-check input { width: 16px; height: 16px; accent-color: var(--accent); }
 .submission-sources { margin: 16px 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
@@ -36,9 +41,25 @@
 .priority-high { color: var(--tone-f0b0a5); border-color: var(--tone-79524d); }
 .paper-lane-empty { font-size: 12px; color: var(--muted); text-align: center; padding: 18px; }
 .paper-card progress { width: 100%; height: 5px; accent-color: var(--accent); margin-top: 16px; }
+.paper-list { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.paper-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.paper-table th { padding: 11px 14px; text-align: left; font-weight: 500; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.paper-table td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; color: var(--muted); }
+.paper-table tbody tr:last-child td { border-bottom: 0; }
+.paper-table small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.paper-row { cursor: pointer; }
+.paper-row:hover td, .paper-row:focus-visible td { background: var(--surface-2); }
+.paper-row:focus-visible { outline: none; }
+.paper-row:focus-visible td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.paper-row-title { display: block; color: var(--text); font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
+.paper-state { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--text); white-space: nowrap; }
+.paper-state.state-review, .paper-state.state-revision { border-color: var(--tone-79524d); color: var(--tone-f0b0a5); }
+.paper-state.state-accepted, .paper-state.state-published { border-color: var(--tone-5e537e); color: var(--tone-c9bfff); }
+.paper-state.state-rejected { color: var(--muted); }
 .submission-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
 .submission-form-grid > :first-child:last-child { grid-column: 1 / -1; }
 .submission-paper-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); }
+.submission-paper-title { font-size: 16px; line-height: 1.7; margin: 0 0 10px; overflow-wrap: anywhere; }
 .submission-action-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
 .submission-action-form { border: 1px solid var(--tone-5b507e); border-radius: 6px; padding: 16px; margin: 16px 0; }
 .submission-attempt { border: 1px solid var(--line); border-radius: 6px; margin: 16px 0; padding: 16px; }
@@ -50,3 +71,8 @@
 .unit-result-line { display: flex; gap: 10px; align-items: center; }
 .unit-result-line .unit-row { flex: 1; min-width: 0; }
 @media (max-width: 1000px) { .submission-stats { grid-template-columns: repeat(3, 1fr); } .submission-form-grid { grid-template-columns: 1fr; } }
+.submission-journal-picker { display:grid; gap:10px; min-width:0; margin-bottom:16px; }
+.submission-journal-picker .form-label { margin:0; }
+.submission-journal-picker .submission-view-toggle { justify-self:start; }
+.submission-journal-picker .submission-view-toggle button[aria-pressed=true] { background:var(--portal-soft,var(--accent-soft)); color:var(--portal-accent,var(--text)); font-weight:600; }
+.submission-picker-status { display:flex; align-items:center; flex-wrap:wrap; gap:10px; font-size:12px; color:var(--muted); }

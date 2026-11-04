@@ -1,10 +1,10 @@
 # 问津维护手册
 
-日常启动和使用见 [README](../README.md)。本手册集中说明安装、部署、数据、开发和发布；最后核对：2026-10-31。
+日常启动和使用见 [README](../README.md)；本机入库性能优化记录见 [性能优化记录](PERFORMANCE.md)。本手册集中说明安装、部署、数据、开发和发布；最后核对：2026-11-03。
 
 ## 文档维护规则
 
-- 现行文档固定为 `README.md` 和 `docs/MAINTENANCE.md`。使用说明写前者，部署和开发说明写本文件。
+- 现行文档固定为 `README.md`、`docs/MAINTENANCE.md` 和 `docs/PERFORMANCE.md`。使用说明写 `README.md`，部署和开发说明写本文件，单机性能优化记录写性能记录。
 - 统一在 `main` 开发；功能、命令、数据结构或权限变化时，在同一提交更新对应文档，并修改核对日期。
 - 命令以 [package.json](../package.json) 和各 CLI 的 `--help` 为准；版本、数据库迁移头和运行时版本分别查代码与依赖清单，避免重复抄写后失效。
 - 设计讨论、阶段验收、一次性报告和截图保存在 Git 忽略的 `.local/`，使用 JSON 或日志记录结果，不新增现行说明文档。
@@ -83,12 +83,16 @@ $env:SHIXUE_KB_DATABASE_URL = 'postgresql+psycopg://shixue_app:<密码>@127.0.0.
 | `SHIXUE_MODEL_API_KEY` | 后台模型调用密钥；地址与模型名在管理员后台配置 |
 | `SHIXUE_PORTAL_URL` | 桌面登录客户端连接的后台根地址，默认 `http://127.0.0.1:8765` |
 | `SHIXUE_DEV_SERVER` | Vite `/api` 代理目标，默认 `http://127.0.0.1:8765` |
+| `SHIXUE_INGEST_CONCURRENCY` | 文档级入库并发数，默认 2，最大 4；性能调优见 [性能记录](PERFORMANCE.md) |
+| `SHIXUE_EMBED_PREFETCH` | 每篇文档预取批次数，默认 2，最大 4 |
+| `SHIXUE_EMBED_WORKERS` | 拼批消费者线程数，默认 2，最大 4 |
+| `SHIXUE_EMBED_INFLIGHT` | 同时执行的 ONNX 推理数，默认 2；串行回退设为 1 |
 
 模型地址和名称会同步到运行中的工作区。密钥来自各宿主的启动环境；更换密钥需要正常停止门户与全部工作区后重启，仅重启门户主进程不会改变已有宿主的环境。
 
 公共文献位于 PostgreSQL 的 `public` schema；个人研究位于 `w_<workspace_id>`。文献表以数据库角色和行级权限区分系统与个人：系统行所有账号可读，个人行仅所属角色可读写，跨归属的原件/版本关联由触发器拒绝。研究表仍按 schema 隔离。新增迁移 kb0013 保留旧文献为系统行，原 ID 和引用不变；兼容的 kb0012 个人研究分区只更新版本标记和授权，不搬动研究记录。其他不兼容结构拒绝启动。
 
-个人原件保存在所属 `workspaces/<id>/assets/personal/`，系统原件位于 `shared-library/assets/`。公共中文期刊元数据由共享宿主维护，个人收藏与备注通过映射保留原投稿期刊 ID；英文目录读取同一服务端快照。账号选择、内部连接令牌和数据库 search_path 由服务端决定。会话使用 HttpOnly Cookie；账号停用、角色修改或密码重置会撤销登录。管理员后台只汇总个人工作区状态及公共引用数量，不提供私人笔记正文入口。
+个人原件保存在所属 `workspaces/<id>/assets/personal/`，系统原件位于 `shared-library/assets/`。公共中文期刊元数据由共享宿主维护，个人收藏与备注通过映射保留原投稿期刊 ID；英文目录读取同一服务端快照。账号选择、内部连接令牌和数据库 search_path 由服务端决定。管理端和用户端分别使用 `wenjin_portal_admin_session`、`wenjin_portal_app_session` 两个 HttpOnly、SameSite=Strict Cookie；前端请求按页面携带 `X-Wenjin-Portal: admin/app`，原生图片及下载按同源 Referer 判定入口，没有对应 Cookie 时不借用另一端会话。两个入口独立登录、退出，管理端仅接受管理员账号；修改密码仍撤销该账号所有入口的会话。旧版共享 Cookie 不再用于认证，升级后两端各重新登录一次。`X-Wenjin-Account` 继续拦截同一入口切换账号后的旧标签请求，包含会话读取和登出；显式重新登录不受此旧绑定限制。账号停用、角色修改或密码重置仍会撤销登录。管理员后台只汇总个人工作区状态及公共引用数量，不提供私人笔记正文入口。
 
 Linux 使用 `python -m backend.portal` 启动，通过 HTTPS 同源反向代理提供网页和 `/api`。调整 [门户 systemd 示例](../deployment/server/wenjin-portal.service.example) 的账号、目录和受限环境文件。示例使用 `KillMode=process`，门户重启时保留工作区宿主和后台任务。
 
@@ -181,11 +185,25 @@ API 和 Worker 独立运行；API 重启保留队列及 Worker 的执行状态�
 
 SQLite 保存项目、工作稿、点校、投稿和检查点；PostgreSQL 保存文献、版本、原文块、索引及助手研究数据。录文修订、历史数据激活和兼容读取代码由现有资料继续使用，清理代码前需检查静态引用、动态加载、打包入口与迁移链。
 
+论文的新建、编辑、正式投稿与改投共用中英文选刊组件。英文候选按刊名／ISSN 查询公共只读目录并分页，已选期刊不因搜索或向导返回而清空。首次保存或投稿时，后端校验 `english:<目录 ID>`，仅将所选条目写入个人 SQLite 的期刊表及 `submission_english_links` 快照关联表；不复制整个目录，不修改系统期刊库。个人概览标记英文关联条目，中文目录及其统计排除这些条目；投稿记录继续保存当时刊名，历史关联可在原目录不可用时读取。该表由启动时的幂等 SQLite 迁移创建，服务端 API 需加载新代码。
+
 管理后台的“检索配置”“助手与 Skill”经 `/api/admin/library/knowledge/…` 维护公共配置。检索设置、助手定义及版本显式读取 `public` 表，个人分区旧配置不自动发布；历史任务仍可核验原有私有技能快照。个人角色只读公共配置；版本表仅额外授予不可变 `id` 列的 UPDATE 权限以支持发布结果时的 `FOR SHARE` 锁，触发器拒绝 ID 变化。分区配置 `config_policy` 版本确保旧账号补齐权限，不改变研究记录及其外键。用户 API 禁止修改、导入、发布、撤销及测试技能，也禁止配置检索与下载重排模型；用户列表只提供启用且未撤销的已发布版本。重排权重统一保存在后台缓存。修改服务端代码后先 `npm stop`，再 `npm start`，让已有宿主和 Worker 加载新代码。
 
 ## 验证与发布
 
-账号门户的视觉样式集中在 [modern.css](../src/portal/modern.css)，作用域为 `.portal-root` 与 `.portal-workspace`，避免覆盖旧本机模式。页面容器只保留一个主标题；研究稿件、批次历史和嵌入组件放在对应页面的内容区域。助手表单用独立的字段网格和操作行；弹窗挂载到视口，并随登录状态一起遮蔽。布局验收覆盖常规宽屏、3299 像素宽屏、手机导航和深色外观。
+批次“已用时”按最初提交时间与服务端快照时间计算，跟随监控刷新，包含排队、停止与恢复期间；刷新失败保留上次读数，不依赖浏览器本机时钟。`LATEST` 在按文献选取最近子任务前计算批次最初提交时间，避免解析／向量子任务替换提交时间。已结束批次显示“记录用时约…”，冻结到最后状态更新时间；历史记录未保存完整执行起止时间，且写入事务中的 `now()` 可能早于实际提交，因此明确标记为估算，不将其冒充累计实际执行耗时。
+
+文献加工的“入库监控”以选中批次为主，进度为已结束文献数／本批文献数，成功、失败、取消、跳过与入队失败分别列出，执行中、排队与待入队计入未结束。解析及其接续向量任务按一份文献计数；已检查但未新增子任务的清单项计为跳过，不再误计为取消。尚未创建子任务的清单项显示待入队，分发异常显示入队失败，避免把它们算成 Worker 排队或文献加工失败。入队详情默认折叠，不再把分发的 100% 当作加工完成。
+
+监控右侧显示全部入库任务中的当前文献、阶段与分块计数；队列按任务计数，与左侧选中批次的文献计数分开。“当前模型可检索”按当前模型空间及活动录文版本核验，明确显示模型名与维度，独立于历史批次结果；不以历史成功数量代替。`processing_inventory.listing` 使用短时 `REPEATABLE READ` 事务，让分页列表、批次、队列及就绪数读取一致快照，返回 `sampled_at`。刷新失败保留旧数据并标记，不显示虚构的剩余时间。无需迁移数据库；重载共享库 API 后新统计口径生效，执行 Worker 不需重启。
+
+账号门户的基础样式集中在 [modern.css](../src/portal/modern.css)，桌面布局密度统一在 [desktop-density.css](../src/portal/desktop-density.css) 管理，作用域为 `.portal-root` 与 `.portal-workspace`。普通页面使用 [PageHeading](../src/workbench/PageHeading.tsx) 合并标题、归属切换和操作，介绍文字收进可用键盘展开的说明；字段要求、任务错误、阅读定位仍就近常显。用户端项目材料搜索位于全局顶栏，普通页面不再叠加面包屑条；阅读与调试页面保留上下文。研究首页准备项在足够宽的内容区采用两列；浏览期刊时不显示论文统计。加工页默认显示整体进度、当前文件和失败提示，批次分发与模型索引统计按需展开，跨页全选、全库处理与取消全部入库任务仍可直接找到。
+
+管理员页头通过 `PageHeadingProvider`／`PageHeadingActions` 接收嵌套功能的操作与摘要：检索版本、未保存状态和刷新，以及中英文期刊总量，直接显示在标题同行；加工流程收进标题说明。功能组件仍持有自身状态与刷新处理，离开页面自动移除对应内容；无页头宿主时保留原位置显示。
+
+期刊列表使用紧凑筛选区：中文目录将搜索、学科、等级、勾选项和结果数量归为同一工具栏；英文目录按“搜索与分区”和“Top、排序、重置与结果”分为两行。来源与版本使用 [JournalSourceDetails](../src/workbench/JournalSourceDetails.tsx) 就近展开，打开时不推移列表，支持键盘、Esc 和外部点击关闭，并约束浮层在视口内。保持原有筛选、分页与数据来源内容。
+
+页面容器只保留一个主标题；研究稿件、批次历史和嵌入组件放在对应页面的内容区域。助手表单用独立的字段网格和操作行；弹窗挂载到视口，并随登录状态一起遮蔽。桌面改动至少在 1280×800、1440×900、1920×1080 检查列表起点、长题名、说明展开、键盘操作及横向溢出；手机导航和深色外观按各自改动范围补验。
 
 ```powershell
 npm run docs:check
@@ -280,6 +298,78 @@ API Key 不写入数据库设置、任务和诊断，由 [embedding_secrets.py](
 
 同一台机器可在 GPU 运行时就绪后再运行 `npm run setup:fp16`（先 `npm stop`），把已缓存的 E5 权重转换为半精度副本：`scripts/optimize_embedding_fp16.py` 直接改写已缓存 ONNX 的外部权重（不下载模型），再把 `fp32` 与 `fp16` 的输出在 480 字左右的样本上逐一对比，余弦达到阈值才写入带 `validated` 标记的 `meta.json`。目录位于 `<系统资料库>/models/fp16/<模型>/`，`models.py` 只加载经过校验的副本，加载失败或副本缺失时自动使用原始权重；副本通过 `identity.txt` 沿用原始权重指纹，`embedding_space`、模型键和已有索引都不变，因此查询向量与历史文档向量仍可比较。转换器不依赖 `onnx` 包，按 protobuf 线格式处理，未识别的字段原样保留；只对已完成数值验证的模型开放。设置 `SHIXUE_EMBEDDING_FP16=0` 可强制回退原始精度。本机实测 fp16 与 fp32 输出的余弦均值 0.999997、最小值 0.999981，同条件吞吐约 1.3–1.8 倍。
 
-GPU 会话默认启用 TF32（`NVIDIA_TF32_OVERRIDE=1`），cuBLAS 的 fp32 矩阵乘走张量核心，实测本机 E5-large 约快 20%，输出余弦与严格 fp32 的差异在小数点后 6 位；设置 `SHIXUE_TF32=0` 可恢复严格 fp32。`embedding-execution.json` 记录实际设备、`tf32` 与 `fp16` 标记。文档向量化按分块配置的“每批文本数”分批调用模型（本地默认仍为 16，可提高到 64 以上提速，外层不再固定 32 条）；分块文本的归一化、分词与向量序列化在后台线程与 GPU 推理重叠执行，写入阶段只在最后提交一次。
+GPU 会话默认启用 TF32（`NVIDIA_TF32_OVERRIDE=1`），cuBLAS 的 fp32 矩阵乘走张量核心，实测本机 E5-large 约快 20%，输出余弦与严格 fp32 的差异在小数点后 6 位；设置 `SHIXUE_TF32=0` 可恢复严格 fp32。`embedding-execution.json` 记录实际设备、`tf32` 与 `fp16` 标记。文档向量化采用“文档级并发 + 自适应跨文档拼批 + 两路并发 ONNX 推理”：4 个文档任务同时准备，每篇预取 4 批；攒批只合并小于一个内部批次的小请求，正常批次立即执行；2 个 batcher worker 共用同一份模型会话，使 CPU tokenize 与 GPU 推理重叠。实测本机 GPU 利用率可稳定在 99% 左右，完整数据、取舍和参数见 [入库性能优化记录](PERFORMANCE.md)。分块文本的归一化、分词与向量序列化在后台线程与 GPU 推理重叠执行，写入阶段只在最后提交一次。可用 `SHIXUE_INGEST_CONCURRENCY`、`SHIXUE_EMBED_PREFETCH`、`SHIXUE_EMBED_WORKERS`、`SHIXUE_EMBED_INFLIGHT`、`SHIXUE_EMBED_BATCH_TEXTS`、`SHIXUE_EMBED_BATCH_WINDOW_MS` 调整，串行回退见性能记录的“监控与回退”。
 
 显式优化已有未完成队列时使用 `processing_upgrade.optimize_pending`：只更新排队自动策略中未主动启用语义计算的文献，撤销运行任务的旧租约并重新排队，对“多次意外中断”失败任务允许重试；保留模型配置、批次标识、手动策略和所有已发布索引。任务 payload 记录 `performance_update`；重复执行保持幂等。需在撤销租约后切换旧 Worker，新任务通过版本与租约门控发布，旧进程不能覆盖结果。不要仅杀 venv 重定向父进程而遗留实际 Python Worker。
+
+
+## 取消入库与历史索引清理
+
+管理员“文献加工”整体进度固定保留一个“取消全部入库任务”按钮。`POST /rag-cancel-all` 停止当前系统库的全部 `import/index` 排队与执行任务，也停止尚未分发的 `rag_batch`；通过控制记录锁与任务租约撤销阻止旧进程继续发布，保留成功索引。兼容原有按批次 API，但页面不再提供单篇或单批取消入口。`processing_progress.ingestion_queue` 只统计解析／向量化任务，区分实际执行数与排队数，模型准备和研究任务不在此取消范围。
+
+“向量模型”底部的历史清理通过 `GET /rag-index-history` 生成 15 分钟有效的服务端预览清单，可选择 `other_models` 或 `all_inactive`。`POST /rag-index-cleanup` 要求预览 ID 与 `confirm=true`，校验已保存模型的向量空间，冻结本次目标，不纳入预览后新产生的历史索引。`index_cleanup.py` 在 API 进程执行可恢复维护任务，使用 `index_cleanup/cleaning` 状态，不由向量 Worker 领取；每次最多删除 500 个分块并原子保存游标和计数，API 重启后在租约过期时接续。
+
+执行前逐索引复核系统归属、活动索引和未完成任务的 `index_id` 引用；忙碌或受保护的索引跳过。只删除未使用的 `kb_chunks`，将对应 `kb_indexes` 标记为 `purged` 并保留配置元信息；不删除原件、录文块、修订、锚点和历史检索快照。模型配置变化时停止剩余清理，失败或停止后重新预览再提交。页面显示已清理分块数和跳过数量；预估只包含向量值，不承诺 PostgreSQL 文件立即缩小，不执行 `VACUUM FULL`。
+
+
+## 入库失败诊断
+
+入口在管理后台“检索配置 → 文献加工 → 失败诊断”，整体进度的“查看失败文献”进入同一视图。列表按最新任务统计当前失败、重试处理中、已完成及曾失败文献；可按题名／任务编号、失败阶段、原因和当前任务批次筛选。原因与阶段数量来自全部匹配文献，分页不影响统计、跨页选择及导出。详情保留最后可靠进度、原件、冻结的模型／维度／切分配置、任务编号和历史记录，可打开原文或复制诊断。
+
+`failure_diagnostics.py` 为新异常生成诊断编号、阶段、异常类型、SQLSTATE 及有限的代码位置，并写入 `kb_jobs.result.diagnostic` 与 `diagnostic_history`。服务日志记录同一编号，不记录异常原始字符串、SQL 参数或文献正文。历史笼统错误仅标注“原因未记录”，不推断为显存不足或模型损坏。重试和成功发布均保留诊断历史；解析后创建的向量化子任务继承历史，原失败任务不删除。
+
+`GET /rag-failures`、`GET /rag-failures/{edition_id}` 和 `POST /rag-failures/export` 仅供系统库管理员使用。`POST /rag-failures/retry-preview` 复用列表筛选，支持显式 ID 或全选后排除；在资料目录 `private/failure-previews` 保存 15 分钟有效清单。原模型、维度或切分配置缺失、录文已变化的文献跳过，不能用当前全局默认值替代。`POST /rag-failures/retry` 要求预览 ID 与 `confirm=true`，可选 `take=5`；同一预览只能提交一次。后台复用 `rag_batch` 每次分发 50 项，逐篇锁定并再次核对原任务、录文和配置签名，已排队或已变化项跳过。保留旧索引，直到新索引完成发布；“重新入队”不代表恢复。取消统一使用现有“取消全部入库任务”。更换配置时回到原有模型／解析与切分页面，再从文献加工提交新任务。
+
+不需要数据库迁移。部署须让共享库 API 与执行 Worker 加载新代码；仅更新前端不会让旧 Worker 开始写结构化诊断。验收使用隔离数据库：`$env:SHIXUE_MANAGED_TESTS='1'; .venv/Scripts/python.exe -m unittest tests.test_failure_diagnostics tests.test_bulk_processing tests.test_rag_pipeline`。验收不自动重试现有失败文献。
+
+
+## 文献加工表格与字段筛选
+
+`processing_inventory.py` 定义列表字段及 `InventoryFilters`。`GET /rag-documents` 支持题名、加工状态、`source`（核心古籍／普通文献）、`text_state`、`job_state`（最近任务状态，含取消及未提交）、`item_type`、`chunk_mode`、`model`、`dimensions` 及题名／最近任务时间排序；分页前执行全部筛选。未记录的模型和策略有独立筛选值，不用当前默认模型填充历史数据。加工中或失败的文献展示最近任务冻结的模型与切分方式，其余展示已发布索引；自动切分有已记录结果时显示实际选用方式。索引分块显示已发布索引数量，逐文件进度和路径留在详情抽屉。
+
+筛选选项覆盖完整题名／状态匹配范围，非当前页。`rag-process-all` 的 `filters` 复用同一谓词，再应用排除 ID 和可加工条件，冻结实际目标；`scope=library` 明确忽略题名、状态和字段筛选。改变筛选会清除原选择，跨页全选与排除保留；批量操作继续核验冻结配置版本。列表无需迁移数据库，发布后重载共享库 API 即可，正在运行的 Worker 无需重启。回归测试为 `tests.test_processing_inventory`，并同时运行原有全量加工和 RAG 管线用例。
+
+
+## 页面弹窗与原生窗口统计
+
+业务页面已统一使用 `AppDialogs.tsx` 与 `dialogQueue.ts` 的异步页内弹窗，复用 Web 与桌面客户端前端。全库静态检查原有 **19 个业务调用点**（8 个文件）：16 个 `window.confirm`、3 个 `window.prompt`，均已替换；没有 `window.alert`。覆盖文献加工／重新解析／取消、历史索引清理、助手版本撤销、放弃未保存修改、页码录入和移出文献。大段确认内容使用题名、字段表和说明分组，按钮直接表达后续操作。
+
+每次决定使用独立 Promise 并顺序展示。取消、Esc 和关闭按钮返回否定决定；输入框取消返回 `null`，保留空字符串作为清空页码的有效输入。移出文献要求完整题名匹配；后台原有校验保留。底层使用 HTML `dialog.showModal()` 提供页面模态层，默认焦点落在取消或输入框；已有 Modal、Drawer 和全局快捷键在顶层确认打开时不处理背景键盘事件，取消确认后继续编辑。根弹窗卸载时取消待定请求，不默认执行任何操作。
+
+仍保留 **3 个 `beforeunload` 注册点**，用于浏览器刷新／关闭时保护未保存修改，这类提示受浏览器安全规则控制。另有 Electron 主进程的系统窗口（包含旧本机入口）：5 个确认调用、4 个启动／服务错误提示，以及 9 个文件或目录选择／保存调用。它们不属于业务页面的浏览器确认框；启动页尚不可用、退出或操作系统文件选择等场景保留原生窗口。
+
+页面新增确认应使用 `confirmDialog`／`confirmDiscard`／`inputDialog` 并等待结果，不能直接调用浏览器原生确认 API。测试覆盖确认队列、取消不提交、输入清空、题名匹配、嵌套编辑窗口及两端页面。前端回归执行 `npm test`，构建执行 `npm run build`。
+
+
+## 后台向量写入时限与原子发布
+
+`ingestion.py` 的后台索引发布在事务内使用 `SET LOCAL`：`statement_timeout` 默认 600 秒、`lock_timeout` 60 秒；每 128 个分块调用一次写入，整篇写入使用 3600 秒单调时钟预算，并按剩余预算收紧每批语句时限。普通连接仍为 5 秒 SQL／3 秒锁等待，事务结束后连接池不会遗留后台设置。此时限只覆盖数据库索引写入，不是向量模型推理超时，也不是每篇文献全部步骤的时限。可用 `SHIXUE_INDEX_WRITE_STATEMENT_SECONDS`、`SHIXUE_INDEX_WRITE_LOCK_SECONDS`、`SHIXUE_INDEX_WRITE_BUDGET_SECONDS` 覆盖默认值。
+
+批量插入阶段不提前锁定 `kb_editions` 或 `kb_jobs`，使心跳、取消和修订更新能够继续。新索引和分块仍在同一个未提交事务中；每批前复核任务状态，完成全部写入后才锁定文献并复核活动修订及任务所有者，再原子切换活动索引、提交成功状态。中途失败、取消、所有者变化或修订变化均回滚本次索引，不发布部分结果，不覆盖旧索引。写入进度包含已生成向量数、已处理写入分块数和逐文件数量；这些是过程进度，最终提交前不代表索引已发布。
+
+数据库诊断从驱动的固定主消息区分语句超时（`DATABASE_STATEMENT_TIMEOUT`）、等待锁超时（`DATABASE_LOCK_TIMEOUT`）和执行被取消（`DATABASE_QUERY_CANCELLED`）。`57014` 单独只能表明查询被取消，不能据此把人工取消误写成超时。既有笼统记录不追写推断原因，日志与原始数据用于独立核对。
+
+`tests.test_index_publication` 使用隔离 PostgreSQL 验证超过旧 5 秒上限的操作、连接池设置恢复、小批插入、全事务回滚、取消不被写入锁阻塞、并发录文修订及总预算。发布需要让执行 Worker 加载新代码；不能仅刷新前端。重载时在当前文献结束的边界切换，保留队列与模型配置，不自动重试已有失败记录。
+
+### 批量入库与向量索引维护
+
+整库或大批量文献加工时，逐篇增量维护 HNSW 向量索引会占去大部分时间（索引越大越慢，还容易触发数据库写入超时）。可以暂时移除当前模型的 HNSW 索引，让入库只写堆表、分块和关键词索引；全部完成后一次性重建 HNSW。关键词/原句检索全程可用；存在索引时语义检索会自动回退到关键词并提示“索引维护中”，显式选择语义模式会返回 409。请安排在维护窗口并停止其他后台任务。
+
+```powershell
+# 查看连接、分块量、各维度索引与当前写入参数
+npm run vector-index -- status
+
+# 入库前：移除当前模型的 HNSW（下面以 1024 维 E5-large 为例；bge-small 用 512）
+npm run vector-index -- defer --dimensions 1024 --yes
+
+# 在管理端“文献加工”继续加工或全库入库，等待队列完成
+
+# 入库后：一次性重建索引（并行构建，1GB maintenance_work_mem）
+npm run vector-index -- rebuild --dimensions 1024 --maintenance-memory 1GB --workers 4 --yes
+npm run vector-index -- verify --dimensions 1024
+
+# 也可以让脚本等待队列清空后自动重建（适合通宵批量入库）
+npm run vector-index -- watch --dimensions 1024 --yes --max-hours 18
+```
+
+脚本位于 [bulk_vector_index.py](../scripts/bulk_vector_index.py)，默认使用当前门户共享库的 owner 连接；外部 PostgreSQL 用 `--database-url` 或 `SHIXUE_KB_MAINTENANCE_URL` 指定。`defer` 在仍有排队/运行任务时默认拒绝，`rebuild` 检测到同名有效索引时默认拒绝（需 `--replace`）。重建失败留下的无效索引可再次 `rebuild`。重建会占用较多内存和磁盘 IO，建议关闭其他程序；完成后可运行 `VACUUM (ANALYZE) public.kb_chunks`，历史模型索引用管理端“清理历史向量索引”删除。

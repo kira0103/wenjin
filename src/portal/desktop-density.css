@@ -1,0 +1,171 @@
+/* Desktop workspace rhythm: one heading, one toolbar, then the working content. */
+.page-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 20px; min-width:0; margin:0 0 16px; }
+.page-heading-title { display:flex; align-items:center; flex-wrap:wrap; gap:10px; min-width:0; }
+.page-heading-title>h1,.page-heading-title>h2 { margin:0; font-size:22px; font-weight:650; line-height:1.4; overflow-wrap:anywhere; }
+.page-heading-title>h2 { font-size:18px; }
+.page-heading-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; min-width:0; }
+.page-heading-help { position:relative; flex:none; font-size:13px; font-weight:400; color:var(--muted); }
+.page-heading-help>summary { display:grid; place-items:center; list-style:none; width:32px; height:32px; border-radius:6px; cursor:pointer; }
+.page-heading-help>summary::-webkit-details-marker { display:none; }
+.page-heading-help>summary:hover,.page-heading-help[open]>summary { color:var(--text); background:var(--surface-2); }
+.page-heading-description { position:absolute; top:calc(100% + 8px); left:0; z-index:30; width:min(360px,65vw); padding:14px 16px; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--text); box-shadow:0 8px 24px #10243020; line-height:1.8; }
+.page-heading-description p { margin:0; }
+.page-heading-description p+p { margin-top:8px; }
+.page-heading .kb-scope-switch { margin:0; }
+.page-heading-actions:empty { display:none; }
+.page-heading-actions .rag-topline,.page-heading-actions .rag-topline>div { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:0; margin:0; }
+.page-heading-actions .rag-save-state { display:inline-flex; align-items:center; padding:4px 8px; border-radius:6px; color:var(--portal-accent,var(--accent)); background:var(--portal-soft,var(--accent-soft)); font-size:11px; }
+.page-heading-actions .rag-save-state.is-dirty { color:var(--text); background:var(--surface-2); }
+.page-heading-actions .catalog-summary { display:flex; flex-wrap:wrap; align-items:baseline; gap:20px; padding:0; margin:0; }
+.page-heading-actions .catalog-summary article { padding:0; border:0; background:none; box-shadow:none; }
+.page-heading-actions .catalog-summary article>div { display:flex; align-items:baseline; gap:8px; }
+.page-heading-actions .catalog-summary article>div>strong { margin:0; font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; }
+.page-heading-actions .catalog-summary article>div>span,.page-heading-actions .catalog-summary strong small { color:var(--muted); font-size:12px; font-weight:400; letter-spacing:0; }
+.page-heading-actions .catalog-summary strong small { margin-left:6px; }
+.journal-source-info { position:relative; font-size:12px; color:var(--muted); }
+.journal-source-info>summary { cursor:pointer; white-space:nowrap; padding:6px 0; }
+.journal-source-body { position:absolute; top:calc(100% + 6px); right:0; z-index:15; width:min(460px,80vw); max-height:320px; overflow:auto; padding:14px 16px; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--text); box-shadow:0 8px 24px #10243020; line-height:1.8; }
+.journal-source-body p { margin:8px 0 0; overflow-wrap:anywhere; }
+.journal-source-body p:first-child { margin-top:0; }
+.ej-filter-summary { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; }
+.ej-filter-summary .ej-stats { margin:0 0 0 auto; }
+
+@media(min-width:980px) {
+  .portal-workspace { grid-template-rows:56px minmax(0,1fr); }
+  .portal-workspace .app-titlebar { height:56px; }
+  .portal-workspace .page-container { padding:18px 24px 24px; }
+  .portal-workspace .topbar { height:36px; min-height:36px; flex-basis:36px; padding:0 24px; }
+  .portal-workspace .welcome-row { margin:0 0 16px; gap:12px; align-items:center; }
+  .portal-workspace .welcome-row h1,.portal-workspace .page-container>h1 { margin:0; font-size:22px; line-height:1.4; letter-spacing:0; }
+  .portal-workspace .welcome-row p { margin:4px 0 0; max-width:78ch; line-height:1.6; }
+  .portal-workspace .page-container>h1+p { margin:4px 0 16px; }
+  .portal-workspace .kb-resources-toolbar { margin:0 0 12px; gap:12px; }
+  .portal-workspace .kb-tabs { margin-top:0; margin-bottom:0; }
+  .portal-workspace .kb-file-layout { padding:16px; gap:16px; }
+  .portal-workspace .settings-page-header { padding-bottom:0; }
+  .portal-workspace .settings-hub-tabs { padding:0 24px 12px; }
+  .portal-workspace .settings-content .page-container { padding:0; }
+  .portal-workspace .workspace-header,.portal-workspace .research-editor-header { padding:14px 24px; }
+  .portal-workspace .workspace-header h1 { margin:0 0 4px; font-size:22px; }
+  .portal-workspace .research-editor-header h1 { margin-bottom:4px; }
+  .portal-workspace .continue-card { padding:18px 20px; border-left-width:1px; }
+  .portal-workspace .continue-card h2 { font-size:20px; margin:0 0 6px; }
+  .portal-workspace .continue-card p { margin:0; }
+  .portal-workspace .project-summary { margin:16px 0 12px; padding:12px 8px; }
+  .portal-workspace .project-summary strong { font-size:22px; }
+  .portal-workspace .setup-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:16px 0; }
+  .portal-workspace .setup-card { min-height:0; padding:14px; gap:12px; border-left-width:1px; }
+  .portal-workspace .setup-card.setup-next { box-shadow:none; }
+  .portal-workspace .setup-card h3 { margin:0 0 4px; font-size:13px; }
+  .portal-workspace .setup-card p { margin:0 0 4px; line-height:1.6; }
+  .portal-workspace .recent-executions { margin-top:16px; padding:16px 20px; }
+  .portal-workspace .unit-results-summary { margin-bottom:16px; padding:16px 20px; }
+  .portal-workspace .filter-buttons { margin-bottom:14px; }
+  .portal-workspace .submission-stats { margin:0 0 14px; gap:12px; }
+  .portal-workspace .submission-stats>div { padding:12px 16px; }
+  .portal-workspace .submission-stats strong { font-size:23px; }
+  .portal-workspace .submission-tabs { margin:0 0 12px; }
+  .portal-workspace .submission-toolbar { margin-top:0; margin-bottom:12px; }
+
+  .portal-admin .portal-admin-topbar { min-height:56px; padding:8px 28px; }
+  .portal-admin .portal-admin-content { padding:18px 28px 28px; gap:16px; }
+  .portal-admin-content>.page-heading { margin:0; }
+  .portal-admin .page-heading-actions .catalog-summary { margin:0; gap:20px; }
+  .portal-admin .page-heading-actions .catalog-summary article>div>strong { font-size:15px; }
+  .portal-admin .portal-card-heading,.portal-admin .portal-table-toolbar { padding:16px 20px; }
+  .portal-admin .portal-stats { gap:12px; }
+  .portal-admin .portal-stat { padding:14px 18px; gap:8px; }
+  .portal-admin .portal-stat strong { font-size:27px; }
+  .portal-admin .portal-overview-grid { gap:16px; }
+  .portal-admin .portal-account-settings .portal-section-heading { margin-bottom:14px; }
+  .portal-admin .portal-profile,.portal-workspace .portal-profile { padding:12px 16px; margin-bottom:16px; }
+  .portal-admin .portal-model-card .portal-form { padding:18px 20px; }
+  .portal-admin .catalog-summary { display:flex; flex-wrap:wrap; gap:24px; margin:0 0 12px; }
+  .portal-admin .catalog-summary article { display:block; padding:0; border:0; background:none; box-shadow:none; }
+  .portal-admin .catalog-summary article>div { display:flex; align-items:baseline; gap:8px; }
+  .portal-admin .catalog-summary article>div>strong { margin:0; font-size:18px; }
+  .portal-admin .catalog-panel-heading { padding:0 20px; }
+  .portal-admin .catalog-management .submission-tabs button { padding:12px 0; }
+  .portal-admin .catalog-management .submission-toolbar { padding:14px 20px 0; }
+  .portal-admin .catalog-management .submission-toolbar.secondary { padding-top:12px; padding-bottom:12px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:12px 16px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar { display:contents; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-search { flex:1 1 220px; max-width:300px; min-width:180px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-search input { height:34px; min-height:34px; padding:6px 0; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar>select { width:120px; min-width:0; height:34px; min-height:34px; padding:6px 10px; font-size:12px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar>.button-secondary { margin-left:0; min-height:34px; padding:6px 10px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar.secondary .scope-note { margin:0 0 0 auto; font-size:12px; white-space:nowrap; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-check { font-size:12px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-check input { width:15px; height:15px; }
+  :is(.portal-admin,.portal-workspace) .english-journals { gap:10px; }
+  .portal-admin .catalog-management .english-journals { padding:12px 16px; }
+  :is(.portal-admin,.portal-workspace) .english-journals .ej-filters { display:grid; grid-template-columns:minmax(220px,1.6fr) minmax(160px,1.1fr) minmax(140px,1fr) minmax(150px,1fr) minmax(140px,1fr); gap:8px; padding:0; border:0; background:none; }
+  :is(.portal-admin,.portal-workspace) .english-journals .ej-search { min-width:0; max-width:none; margin:0; }
+  :is(.portal-admin,.portal-workspace) .english-journals .ej-search input { width:100%; min-width:0; height:34px; min-height:34px; padding:6px 0; font-size:12px; }
+  :is(.portal-admin,.portal-workspace) .english-journals .ej-field { min-width:0; flex:none; gap:6px; font-size:12px; }
+  :is(.portal-admin,.portal-workspace) .english-journals .ej-field select { min-width:0; width:100%; height:34px; min-height:34px; padding:6px 8px; font-size:12px; }
+  :is(.portal-admin,.portal-workspace) .ej-filter-summary { gap:8px 12px; }
+  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-field { width:166px; }
+  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-check { font-size:12px; gap:6px; }
+  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-check input { width:15px; height:15px; }
+  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-reset { margin:0; min-height:34px; padding:6px 10px; font-size:12px; }
+  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-stats { margin-left:auto; font-size:12px; }
+  .portal-workspace .journal-controls { padding:0 0 12px; }
+  .portal-workspace .journal-controls .submission-search { flex-basis:200px; max-width:260px; }
+  .portal-workspace .journal-controls .submission-toolbar>select { width:110px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls>.journal-source-info { margin-left:auto; }
+  .portal-knowledge-settings .kb-workbench { padding:0; border:0; background:none; border-radius:0; }
+  .portal-knowledge-settings .rag-topline { margin-bottom:8px; padding-bottom:0; }
+  .portal-knowledge-settings .rag-pipeline-details { margin:0 0 0 auto; position:relative; font-size:12px; }
+  .portal-knowledge-settings .rag-pipeline-details>summary { cursor:pointer; padding:8px 0; color:var(--muted); }
+  .portal-knowledge-settings .rag-pipeline-details>.rag-pipeline { position:absolute; right:0; top:100%; z-index:20; width:min(660px,70vw); background:var(--surface); box-shadow:0 8px 24px #10243020; }
+  .portal-knowledge-settings .rag-tabs { margin:0 0 16px; gap:16px; }
+  .portal-knowledge-settings .rag-layout { grid-template-columns:minmax(0,1fr); }
+  .portal-knowledge-settings .rag-service { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; }
+  .portal-knowledge-settings .rag-section { padding:16px 20px; }
+  .portal-knowledge-settings .rag-section>header { margin-bottom:14px; gap:10px; }
+  .portal-knowledge-settings .rag-documents>header { display:none; }
+  .portal-knowledge-settings .rag-section-number { width:28px; height:28px; font-size:12px; }
+  .portal-knowledge-settings .rag-section h3 { font-size:16px; }
+  .portal-knowledge-settings .rag-overall-progress { margin-bottom:12px; padding:12px 14px; }
+  .portal-knowledge-settings .rag-overall-heading { gap:12px; margin-bottom:8px; }
+  .portal-knowledge-settings .rag-overall-title { display:flex; flex-wrap:wrap; }
+  .portal-knowledge-settings .rag-overall-actions { display:flex; flex-direction:row; align-items:center; flex-wrap:wrap; }
+  .portal-knowledge-settings .rag-overall-meter { margin:8px 0; gap:16px; }
+  .portal-knowledge-settings .rag-overall-meter>strong { font-size:24px; }
+  .portal-knowledge-settings .rag-processing-failure { padding:6px 10px; margin:8px 0; }
+  .portal-knowledge-settings .rag-processing-failure button { min-height:32px; padding:4px 10px; }
+  .portal-knowledge-settings .rag-overall-details { margin:8px 0; font-size:12px; }
+  .portal-knowledge-settings .rag-overall-details>summary { cursor:pointer; color:var(--muted); padding:4px 0; }
+  .portal-knowledge-settings .rag-current-execution { display:flex; flex-wrap:wrap; gap:6px 20px; margin:8px 0; font-size:12px; }
+  .portal-knowledge-settings .rag-index-overview { margin:10px 0; font-size:12px; }
+  .portal-knowledge-settings .rag-index-overview>summary { padding:6px 0; cursor:pointer; color:var(--muted); overflow-wrap:anywhere; }
+  .portal-knowledge-settings .rag-processing-overview { margin:12px 0; gap:12px; }
+  .portal-knowledge-settings .rag-processing-overview>div { padding:8px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .portal-knowledge-settings .rag-processing-overview strong { font-size:18px; }
+  .portal-knowledge-settings .rag-processing-model { padding:0; margin:12px 0; border:0; background:none; }
+  .portal-knowledge-settings .rag-processing-model>div { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; }
+  .portal-knowledge-settings .rag-processing-model p { margin:0; }
+  .portal-knowledge-settings .rag-processing-options { margin:10px 0; align-items:center; }
+  .portal-knowledge-settings .rag-processing-toolbar { display:grid; grid-template-columns:minmax(0,1fr) 180px; gap:8px 12px; margin:12px 0; align-items:start; }
+  .portal-knowledge-settings .rag-processing-toolbar .rag-document-filter { grid-column:1; grid-row:1; margin:0; }
+  .portal-knowledge-settings .rag-processing-toolbar .rag-processing-options { display:contents; }
+  .portal-knowledge-settings .rag-processing-toolbar .rag-field { grid-column:2; grid-row:1; min-width:0; }
+  .portal-knowledge-settings .rag-processing-toolbar .rag-field>span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .portal-knowledge-settings .rag-processing-toolbar .check-label { grid-column:1/-1; grid-row:2; }
+  .portal-knowledge-settings .rag-bulk-actions { margin:12px 0; padding:12px 14px; }
+  .portal-knowledge-settings .rag-bulk-actions>div { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; }
+  .portal-knowledge-settings .rag-bulk-actions small { margin:0; }
+  .portal-knowledge-settings .rag-document-actions { margin:12px 0; }
+  .portal-knowledge-settings .rag-document-selection { gap:8px; }
+  .portal-knowledge-settings .rag-document-selection>.rag-selection-inline { display:inline-flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .portal-knowledge-settings .rag-selection-inline button { min-height:36px; padding:6px; }
+}
+
+@container workspace (max-width:640px) {
+  .portal-workspace .setup-grid { grid-template-columns:1fr; }
+}
+@container workspace (max-width:900px) {
+  .portal-workspace .english-journals .ej-filters { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .portal-workspace .english-journals .ej-search { grid-column:span 2; }
+}

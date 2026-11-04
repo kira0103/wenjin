@@ -1,3 +1,4 @@
+import {confirmDiscard} from '../dialogQueue';
 import {useEffect,useRef,useState} from 'react';
 import {request} from '../api';
 import {Modal} from '../Pages';
@@ -13,7 +14,7 @@ export default function DocumentStrategyDialog({document,onClose,onSaved}:{docum
   useEffect(()=>{let live=true;void request<Policy>(`/api/knowledge/rag-documents/${document.id}/policy`).then(p=>{if(live){setPolicy(p);setValue(p.processing);setInherit(!p.override);}}).catch(e=>{if(live)setError(e.message);});return()=>{live=false;epoch.current++;};},[document.id]);
   const dirty=!!policy&&(inherit!==!policy.override||!inherit&&JSON.stringify(value)!==JSON.stringify(policy.override));
   const active=inherit?policy?.default_processing:value;
-  function close(){if(!busy&&(!dirty||window.confirm('此文档策略尚未保存，放弃修改？')))onClose();}
+  async function close(){if(!busy&&(!dirty||await confirmDiscard('此文档策略尚未保存，放弃修改？')))onClose();}
   function change(next:Ingestion){epoch.current++;setPreview(null);setValue(next);setMessage('');}
   async function inspect(){if(!active)return;const ticket=++epoch.current;setBusy(true);setError('');try{const data=await request<Preview>(`/api/knowledge/rag-documents/${document.id}/preview`,'POST',{expected_revision:document.active_revision,processing:active});if(ticket===epoch.current)setPreview(data);}catch(e){if(ticket===epoch.current)setError(e instanceof Error?e.message:'预览失败');}finally{if(ticket===epoch.current)setBusy(false);}}
   async function save(rebuild=false){if(!policy||!active)return;setBusy(true);setError('');setMessage('');try{

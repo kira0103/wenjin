@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from backend.portal import COOKIE, create_app
+from backend.portal import APP_COOKIE, ADMIN_COOKIE, LEGACY_COOKIE, create_app
 from backend.portal_accounts import AccountError, Accounts
 from backend.portal_fleet import WorkspaceTarget
 
@@ -102,6 +102,8 @@ class PortalTests(unittest.TestCase):
         self.folder.cleanup()
 
     def login(self, username='admin', password=PASSWORD):
+        self.cookie_name=ADMIN_COOKIE if username=='admin' else APP_COOKIE
+        self.client.headers['X-Wenjin-Portal']='admin' if username=='admin' else 'app'
         response = self.client.post('/api/session', json={'username': username, 'password': password})
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
@@ -111,7 +113,7 @@ class PortalTests(unittest.TestCase):
         self.login('alice')
         self.assertEqual(self.client.get('/api/admin/users').status_code, 403)
         self.assertEqual(self.client.post('/api/admin/users', json={'username':'attacker','display_name':'越权','password':PASSWORD}).status_code, 403)
-        token = self.client.cookies.get(COOKIE)
+        token = self.client.cookies.get(self.cookie_name)
         with self.accounts.connection() as db:
             row = db.execute("SELECT password_hash FROM portal_users WHERE username='alice'").fetchone()
             self.assertNotIn(PASSWORD, row[0])
@@ -119,7 +121,7 @@ class PortalTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT count(*) FROM portal_sessions WHERE token_hash=?', (token,)).fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT count(*) FROM portal_sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()[0], 1)
         self.client.delete('/api/session')
-        self.assertEqual(self.client.get('/api/projects', headers={'Cookie':COOKIE+'='+token}).status_code, 401)
+        self.assertEqual(self.client.get('/api/projects', headers={'Cookie':self.cookie_name+'='+token}).status_code, 401)
 
     def test_workspace_routing_ignores_client_identity_and_replaces_authentication(self):
         self.login('alice')
@@ -168,6 +170,76 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/tasks', headers={'X-Wenjin-Account':self.alice['id']},json={'source_text':'旧账号私有草稿'}).status_code,401)
         self.assertFalse(self.fleet.requests)
 
+    def test_admin_and_user_share_cookie_jar_but_keep_independent_sessions(self):
+        self.login('admin')
+        admin_token=self.client.cookies.get(ADMIN_COOKIE)
+        self.login('alice')
+        app_token=self.client.cookies.get(APP_COOKIE)
+        for scope,identity in [('admin',self.admin['id']),('app',self.alice['id'])]:
+            response=self.client.get('/api/session',headers={'X-Wenjin-Portal':scope})
+            self.assertEqual(response.json()['user']['id'],identity)
+        self.assertEqual(self.client.get('/api/admin/users',headers={'X-Wenjin-Portal':'admin'}).status_code,200)
+        self.assertEqual(self.client.get('/api/admin/users',headers={'X-Wenjin-Portal':'app'}).status_code,403)
+        self.assertIn('alice',self.client.get('/api/projects',headers={'X-Wenjin-Portal':'app'}).text)
+        self.client.delete('/api/session',headers={'X-Wenjin-Portal':'admin'})
+        self.assertIsNone(self.accounts.session(admin_token))
+        self.assertIsNotNone(self.accounts.session(app_token))
+        self.assertTrue(self.client.get('/api/session',headers={'X-Wenjin-Portal':'app'}).json()['authenticated'])
+        self.assertFalse(self.client.get('/api/session',headers={'X-Wenjin-Portal':'admin'}).json()['authenticated'])
+
+    def test_app_logout_does_not_revoke_admin_and_admin_rejects_user_login(self):
+        self.login('admin');admin_token=self.client.cookies.get(ADMIN_COOKIE)
+        self.login('alice');app_token=self.client.cookies.get(APP_COOKIE)
+        response=self.client.post('/api/session',headers={'X-Wenjin-Portal':'admin'},json={'username':'alice','password':PASSWORD})
+        self.assertEqual(response.status_code,403)
+        self.assertEqual(self.client.cookies.get(ADMIN_COOKIE),admin_token)
+        self.assertEqual(self.client.cookies.get(APP_COOKIE),app_token)
+        self.client.delete('/api/session',headers={'X-Wenjin-Portal':'app'})
+        self.assertIsNone(self.accounts.session(app_token))
+        self.assertIsNotNone(self.accounts.session(admin_token))
+
+    def test_no_cross_entry_fallback_or_legacy_cookie_reuse(self):
+        self.login('admin')
+        self.assertFalse(self.client.get('/api/session',headers={'X-Wenjin-Portal':'app'}).json()['authenticated'])
+        self.assertEqual(self.client.get('/api/projects',headers={'X-Wenjin-Portal':'app'}).status_code,401)
+        self.client.headers.pop('X-Wenjin-Portal')
+        token,_=self.accounts.authenticate('alice',PASSWORD)
+        self.client.cookies.set(LEGACY_COOKIE,token,path='/api')
+        self.assertFalse(self.client.get('/api/session').json()['authenticated'])
+        self.assertEqual(self.client.get('/api/session',headers={'X-Wenjin-Portal':'invalid'}).status_code,400)
+
+    def test_native_resource_requests_choose_same_origin_referring_entry(self):
+        self.login('admin');self.login('alice');self.client.headers.pop('X-Wenjin-Portal')
+        self.assertIn('admin',self.client.get('/api/projects',headers={'Referer':'http://testserver/admin/'}).text)
+        self.assertIn('alice',self.client.get('/api/projects',headers={'Referer':'http://testserver/app/'}).text)
+        self.assertIn('alice',self.client.get('/api/projects',headers={'Referer':'https://other.invalid/admin/'}).text)
+        self.assertEqual(self.client.get('/api/session',headers={'Referer':'http://[invalid'}).status_code,200)
+
+    def test_stale_tab_cannot_rebind_session_or_log_out_new_user(self):
+        self.login('alice');self.login('bobby')
+        token=self.client.cookies.get(APP_COOKIE)
+        for method in ('get','delete'):
+            result=getattr(self.client,method)('/api/session',headers={'X-Wenjin-Account':self.alice['id']})
+            self.assertEqual(result.status_code,401)
+        self.assertIsNotNone(self.accounts.session(token))
+
+    def test_admin_role_in_app_does_not_grant_admin_entry_session(self):
+        self.client.headers['X-Wenjin-Portal']='app'
+        response=self.client.post('/api/session',json={'username':'admin','password':PASSWORD})
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(self.client.get('/api/admin/users').status_code,403)
+        self.assertEqual(self.client.get('/api/admin/users',headers={'X-Wenjin-Portal':'admin'}).status_code,401)
+
+    def test_password_change_revokes_same_accounts_sessions_in_both_entries(self):
+        self.login('admin');admin_token=self.client.cookies.get(ADMIN_COOKIE)
+        self.client.headers['X-Wenjin-Portal']='app'
+        self.client.post('/api/session',json={'username':'admin','password':PASSWORD})
+        app_token=self.client.cookies.get(APP_COOKIE)
+        response=self.client.post('/api/me/password',json={'current_password':PASSWORD,'password':'replacement-password-123'})
+        self.assertEqual(response.status_code,200)
+        self.assertIsNone(self.accounts.session(admin_token))
+        self.assertIsNone(self.accounts.session(app_token))
+
     def test_public_library_admin_entry_and_private_mutation_guard(self):
         self.login('alice')
         for path,method in [('/api/admin/library/knowledge/catalog','get'),('/api/system-library/settings','get'),('/api/knowledge/document-imports/preview','post'),('/api/submissions/journals','post'),('/api/submissions/import','post')]:
@@ -209,7 +281,7 @@ class PortalTests(unittest.TestCase):
     def test_temporary_password_must_be_changed_and_old_sessions_are_invalidated(self):
         user = self.accounts.create('reader', '临时账号', PASSWORD)
         self.login('reader')
-        token = self.client.cookies.get(COOKIE)
+        token = self.client.cookies.get(self.cookie_name)
         self.assertEqual(self.client.get('/api/projects').status_code, 403)
         changed = self.client.post('/api/me/password', json={'current_password':PASSWORD,'password':'replacement-password-123'})
         self.assertEqual(changed.status_code, 200, changed.text)

@@ -1,3 +1,4 @@
+import {confirmDialog,confirmDiscard} from '../dialogQueue';
 import { send } from '../transport';
 import { platform } from '../platform';
 import { useEffect, useRef, useState } from 'react';
@@ -24,12 +25,12 @@ export default function AssistantManagement({onDirtyChange,onTest}:{onDirtyChang
     void request<AssistantDefinition[]>('/api/knowledge/skills').then(v=>{if(alive)setSkills(v);}).catch(()=>{});return()=>{alive=false;};},[kind]);
   async function act(fn:()=>Promise<void>){setBusy(true);setError('');setMessage('');try{await fn();}catch(e){setError(e instanceof Error?e.message:'操作未完成');}finally{setBusy(false);}}
   function load(value:AssistantDefinition){setItem(value);setDraft({...value.draft,edit_version:value.edit_version});setFiles(JSON.stringify(value.draft.files,null,2));setVersion(value.active_version||value.versions?.[0]?.id||'');setDirty(false);}
-  function leave(){return !dirty||window.confirm('放弃未保存的助手配置修改？');}
+  async function leave(){return !dirty||await confirmDiscard('放弃未保存的助手配置修改？');}
   function update(value:Partial<AssistantDraft>){if(draft){setDraft({...draft,...value});setDirty(true);}}
   async function save(){if(!draft)return null;const parsed:unknown=JSON.parse(files);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))throw new Error('参考文件需为路径与文本组成的对象');
     const value=await request<AssistantDefinition>('/api/knowledge/'+kind+(item?'/'+item.id:''),item?'PUT':'POST',{...draft,files:parsed,edit_version:item?.edit_version||0});load(value);await refresh();setMessage('草稿已保存');return value;}
   async function command(action:string,body:unknown){if(!item)return;load(await request<AssistantDefinition>(`/api/knowledge/${kind}/${item.id}/${action}`,'POST',body));await refresh();}
-  async function importFiles(selected:FileList|null){if(!selected?.length)return;if(!leave())return;
+  async function importFiles(selected:FileList|null){if(!selected?.length)return;if(!await leave())return;
     let body:unknown;
     if(selected.length===1&&selected[0].name.toLowerCase().endsWith('.zip')){
       if(selected[0].size>256*1024)throw new Error('技能包超过 256 KB');const bytes=new Uint8Array(await selected[0].arrayBuffer());let binary='';for(const b of bytes)binary+=String.fromCharCode(b);body={data_base64:btoa(binary)};
@@ -37,15 +38,15 @@ export default function AssistantManagement({onDirtyChange,onTest}:{onDirtyChang
     const value=await request<AssistantDefinition>('/api/knowledge/skills/import','POST',body);setKind('skills');load(value);setList(await request<AssistantDefinition[]>('/api/knowledge/skills'));setMessage('已导入为独立草稿，请核对后测试与发布');}
   const chosen=item?.versions?.find(v=>v.id===version);
   return <section aria-label="助手配置" className="kb-assistant-management"><h2>助手配置</h2>
-    <div className="kb-toolbar">{(['skills','agents'] as const).map(k=><button className={kind===k?'button-primary':'button-secondary'} key={k} onClick={()=>{if(leave()){setKind(k);setDraft(null);setItem(null);setDirty(false);setError('');}}}>{k==='skills'?'Skill 中心':'智能体管理'}</button>)}</div>
+    <div className="kb-toolbar">{(['skills','agents'] as const).map(k=><button className={kind===k?'button-primary':'button-secondary'} key={k} onClick={async()=>{if(await leave()){setKind(k);setDraft(null);setItem(null);setDirty(false);setError('');}}}>{k==='skills'?'Skill 中心':'智能体管理'}</button>)}</div>
     <p>{kind==='skills'?'管理可复用的研究方法。新增技能后可用样本文献测试，再发布并绑定助手。':'为专业助手配置职责、工具和技能。发布版本供单助手或协同研究选择。'}</p>
     {error&&<p className="persistent-error" role="alert">{error}</p>}{message&&<p className="scope-note" role="status">{message}</p>}
     <div className="kb-toolbar"><input aria-label="筛选助手配置" placeholder="搜索名称或描述" value={filter} onChange={e=>setFilter(e.target.value)}/>
-      <button className="button-primary" disabled={busy} onClick={()=>{if(leave()){setItem(null);setDraft(blank());setFiles('{}');setDirty(true);}}}>{kind==='skills'?'新增技能':'新增智能体'}</button>
+      <button className="button-primary" disabled={busy} onClick={async()=>{if(await leave()){setItem(null);setDraft(blank());setFiles('{}');setDirty(true);}}}>{kind==='skills'?'新增技能':'新增智能体'}</button>
       {kind==='skills'&&<><label className="button-secondary">导入 ZIP<input aria-label="导入技能包" type="file" accept=".zip" disabled={busy} onChange={e=>{const f=e.currentTarget.files;void act(()=>importFiles(f));e.currentTarget.value='';}}/></label>
         <label className="button-secondary">导入技能目录<input ref={folderInput} aria-label="导入技能目录" type="file" multiple disabled={busy} onChange={e=>{const f=e.currentTarget.files;void act(()=>importFiles(f));e.currentTarget.value='';}}/></label></>}
     </div>
-    <div className={`kb-config-layout ${draft?'has-editor':''}`}><div className="kb-list">{list.filter(v=>(v.draft.name+' '+v.draft.description).includes(filter)).map(value=><button key={value.id} className="kb-card kb-note-row" disabled={busy} onClick={()=>{if(leave())void act(async()=>load(await request<AssistantDefinition>(`/api/knowledge/${kind}/${value.id}`)));}}>
+    <div className={`kb-config-layout ${draft?'has-editor':''}`}><div className="kb-list">{list.filter(v=>(v.draft.name+' '+v.draft.description).includes(filter)).map(value=><button key={value.id} className="kb-card kb-note-row" disabled={busy} onClick={async()=>{if(await leave())void act(async()=>load(await request<AssistantDefinition>(`/api/knowledge/${kind}/${value.id}`)));}}>
       <strong>{value.draft.name}</strong><span>{value.enabled?'已启用':'已停用'} · {value.active_version?'默认 v'+value.active_number:'未发布默认版本'}</span><small>{value.draft.description}</small></button>)}</div>
     {draft&&<div className="kb-editor"><h3>{item?'编辑':'新增'}{kind==='skills'?'技能':'智能体'}</h3>
       <label>名称<input aria-label="配置名称" value={draft.name} maxLength={100} onChange={e=>update({name:e.target.value})}/></label>
@@ -71,10 +72,10 @@ export default function AssistantManagement({onDirtyChange,onTest}:{onDirtyChang
       {!!item?.versions?.length&&<section><h3>版本与历史</h3><select aria-label="配置历史版本" value={version} onChange={e=>setVersion(e.target.value)}>{item.versions.map(v=><option key={v.id} value={v.id}>v{v.number}{v.id===item.active_version?' · 当前默认':''}{v.revoked?' · 已撤销':''}</option>)}</select>
         {chosen&&<><p className="scope-note">内容校验 {chosen.sha256.slice(0,16)}… · {chosen.id}</p><div className="kb-toolbar">
           <button className="button-secondary" disabled={busy||chosen.revoked||dirty} onClick={()=>void act(()=>command('activate',{version_id:chosen.id}))}>设为默认版本</button>
-          <button className="button-secondary" disabled={busy} onClick={()=>{if(leave()){setDraft({...chosen.content,edit_version:item.edit_version});setFiles(JSON.stringify(chosen.content.files,null,2));setDirty(true);}}}>从此版本编辑草稿</button>
+          <button className="button-secondary" disabled={busy} onClick={async()=>{if(await leave()){setDraft({...chosen.content,edit_version:item.edit_version});setFiles(JSON.stringify(chosen.content.files,null,2));setDirty(true);}}}>从此版本编辑草稿</button>
           {kind==='skills'&&<><button className="button-secondary" disabled={chosen.revoked||dirty} onClick={()=>onTest(item.id,chosen.id)}>用文献测试此版本</button>
             <button className="button-secondary" disabled={busy||chosen.revoked} onClick={()=>void act(async()=>{const response=await send({path:`/api/knowledge/skills/${item.id}/versions/${chosen.id}/export`});if(response.status!==200||!(response.body instanceof ArrayBuffer))throw new Error('技能包导出失败');await platform.saveFile({filename:item.slug+'-v'+chosen.number+'.zip',data:response.body});})}>导出技能包</button></>}
-          <button className="button-quiet" disabled={busy||chosen.revoked} onClick={()=>{if(window.confirm('撤销后将停止使用此版本的运行，并禁止后续调用。继续？'))void act(()=>command(`versions/${chosen.id}/revoke`,{}));}}>紧急撤销版本</button></div>
+          <button className="button-quiet" disabled={busy||chosen.revoked} onClick={async()=>{if(await confirmDialog({title:'紧急撤销此版本？',description:'撤销后将停止使用此版本的运行，并禁止后续调用。',confirmLabel:'撤销版本',tone:'danger'}))void act(()=>command(`versions/${chosen.id}/revoke`,{}));}}>紧急撤销版本</button></div>
           <details><summary>历史版本与当前草稿对照</summary><div className="kb-version-diff"><div><h4>所选历史版本</h4><pre>{JSON.stringify(chosen.content,null,2)}</pre></div><div><h4>当前草稿</h4><pre>{JSON.stringify(draft,null,2)}{'\n参考文件草稿：\n'+files}</pre></div></div></details></>}
       </section>}
     </div>}</div>

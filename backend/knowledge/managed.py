@@ -31,6 +31,71 @@ def runtime_directory() -> Path:
     return Path(__file__).resolve().parents[2] / 'build' / 'postgres'
 
 
+def _physical_memory() -> int:
+    """Total RAM of the host, used to size the embedded PostgreSQL runtime."""
+    if os.name == 'nt':
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [('dwLength', ctypes.c_ulong), ('dwMemoryLoad', ctypes.c_ulong),
+                        ('ullTotalPhys', ctypes.c_ulonglong), ('ullAvailPhys', ctypes.c_ulonglong),
+                        ('ullTotalPageFile', ctypes.c_ulonglong), ('ullAvailPageFile', ctypes.c_ulonglong),
+                        ('ullTotalVirtual', ctypes.c_ulonglong), ('ullAvailVirtual', ctypes.c_ulonglong),
+                        ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+        status = MEMORYSTATUSEX()
+        status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return int(status.ullTotalPhys)
+    try:
+        return os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+    except (AttributeError, ValueError, OSError):
+        return 4 * 1024 ** 3
+
+
+def tuning_settings(total_bytes: int | None = None) -> dict:
+    """Conservative PostgreSQL settings for a single-machine document workbench.
+
+    The embedded cluster previously started with PostgreSQL defaults (128 MB
+    shared_buffers), which makes incremental HNSW maintenance read the multi-GB
+    vector indexes from disk for every inserted chunk. Values scale with RAM and
+    stay small enough for a 16-32 GB desktop that also runs the GPU worker.
+    """
+    total = total_bytes or _physical_memory()
+    memory = max(1.0, total / 1024 ** 3)
+    cpu = os.cpu_count() or 4
+
+    def clamp(low, value, high):
+        return max(low, min(value, high))
+
+    return {
+        'shared_buffers': f'{clamp(128, int(memory * 128), 4096)}MB',
+        'effective_cache_size': f'{clamp(512, int(memory * 512), 12288)}MB',
+        'maintenance_work_mem': f'{clamp(64, int(memory * 32), 1024)}MB',
+        'work_mem': '16MB',
+        'max_wal_size': f'{clamp(256, int(memory * 256), 8192)}MB',
+        'min_wal_size': '1GB',
+        'checkpoint_timeout': '15min',
+        'checkpoint_completion_target': '0.9',
+        'wal_compression': 'on',
+        'random_page_cost': '1.1',
+        # Windows lacks posix_fadvise(); PostgreSQL rejects a non-zero value there.
+        'effective_io_concurrency': '0' if os.name == 'nt' else '200',
+        'jit': 'off',
+        'max_parallel_maintenance_workers': str(clamp(1, cpu // 4, 4)),
+        'max_worker_processes': '12',
+    }
+
+
+def _write_tuning(directory: Path):
+    """Append the managed tuning block to a freshly initialised cluster."""
+    lines = ['', '# Managed workbench tuning (sized for this machine).']
+    lines += [f'{key} = {value}' for key, value in tuning_settings().items()]
+    try:
+        with (directory / 'postgresql.conf').open('a', encoding='utf-8') as stream:
+            stream.write('\n'.join(lines) + '\n')
+    except OSError:
+        # Tuning must never block database initialisation.
+        pass
+
+
 def _run(command, *, env=None, timeout=45):
     options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
     # Daemons can inherit pipe handles from pg_ctl on Windows. Regular files let
@@ -207,6 +272,7 @@ class ManagedPostgres:
                 # initdb diagnostics contain paths, but no password. Keep them outside API output.
                 (self.private / 'initialization.log').write_bytes(result.stdout + result.stderr)
                 raise RuntimeError('数据库初始化失败，请查看初始化日志')
+            _write_tuning(stage)
             _write_json(marker, {'format': 1, 'cluster_id': uuid.uuid4().hex, 'pg_major': 17})
             stage.rename(self.data)
             pending_path.unlink(missing_ok=True)

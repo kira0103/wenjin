@@ -379,9 +379,11 @@ def sample_texts():
 
 
 def load_local_model(model, cache, specific=None):
-    from fastembed import TextEmbedding
     from backend.knowledge.inference_runtime import options
+    # Activate the GPU runtime before fastembed imports onnxruntime: an import
+    # that wins this race pins the CPU-only wheel for the whole process.
     runtime, _requested = options()
+    from fastembed import TextEmbedding
     names = [provider[0] if isinstance(provider, tuple) else provider for provider in runtime["providers"]]
     if "CUDAExecutionProvider" not in names:
         raise SystemExit("当前没有可用的 CUDA 推理运行时；fp16 仅在 GPU 上有效，请先完成 GPU 运行时安装")
@@ -482,6 +484,11 @@ def main() -> None:
 
     import numpy as np
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    # Activate the project GPU runtime *before* fastembed (and therefore
+    # onnxruntime) is imported below. Otherwise the CPU-only wheel from .venv
+    # wins the race and validation reports "没有可用的 CUDA 推理运行时".
+    from backend.knowledge.inference_runtime import options as runtime_options
+    runtime_options()
     from backend.knowledge.models import model_identity
 
     if args.model not in VALIDATED_MODELS:

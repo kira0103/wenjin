@@ -1,12 +1,11 @@
 import { workspaceStorage as localStorage } from './storage';
 import type { Material, MaterialDetail, TaskKind } from './api';
 
-export type WorkTab = 'reader' | 'references' | 'notes';
 export type ReaderZoom = number | 'fit';
-export type MaterialView = { tab: WorkTab; readerPage: number; pageFrom: number; pageTo: number; sideOpen: boolean; taskKind: TaskKind; message: string; pastedSource: string; sourceMode: 'pdf' | 'paste'; targetLanguage: string; zoom: ReaderZoom; taskId?: string };
+export type MaterialView = { readerPage: number; pageFrom: number; pageTo: number; sideOpen: boolean; taskKind: TaskKind; message: string; pastedSource: string; sourceMode: 'pdf' | 'paste'; targetLanguage: string; zoom: ReaderZoom; taskId?: string };
 type Session = { projectId: string; selectedByProject: Record<string, string>; views: Record<string, MaterialView>; unitByProject?: Record<string, string>; pageByProject?: Record<string, string> };
 const key = 'shixue-workbench-session-v1';
-export const defaultView = (pages: number): MaterialView => ({ tab: 'reader', readerPage: 1, pageFrom: 1, pageTo: Math.min(6, pages), sideOpen: true, taskKind: 'summary', message: '', pastedSource: '', sourceMode: 'pdf', targetLanguage: '中文', zoom: 'fit' });
+export const defaultView = (pages: number): MaterialView => ({ readerPage: 1, pageFrom: 1, pageTo: Math.min(6, pages), sideOpen: true, taskKind: 'summary', message: '', pastedSource: '', sourceMode: 'pdf', targetLanguage: '中文', zoom: 'fit' });
 export function readSession(): Session {
   try {
     const s = JSON.parse(localStorage.getItem(key) || '{}');

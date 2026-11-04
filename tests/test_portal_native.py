@@ -69,6 +69,7 @@ class PortalNativeTests(unittest.TestCase):
             try:
                 server,server_thread=start_portal(application)
                 for client,name in [(admin_client,'admin'),(alice_client,'alice'),(bob_client,'bobby')]:
+                    client.headers['X-Wenjin-Portal']='admin' if name=='admin' else 'app'
                     response=client.post('/api/session',json={'username':name,'password':PASSWORD})
                     self.assertEqual(response.status_code,200,response.text)
                 configuration=admin_client.put('/api/admin/settings',json={'base_url':f'http://127.0.0.1:{model.server_port}/v1','model':'portal-fixture','provider_name':'隔离模拟模型'})

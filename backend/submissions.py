@@ -103,6 +103,11 @@ def migrate(db, seed=True):
       CREATE TABLE IF NOT EXISTS submission_public_links (
         public_id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES submission_journals(id)
       );
+      CREATE TABLE IF NOT EXISTS submission_english_links (
+        catalog_id TEXT PRIMARY KEY,
+        journal_id TEXT NOT NULL UNIQUE REFERENCES submission_journals(id),
+        snapshot_json TEXT NOT NULL
+      );
     ''')
     if seed and SEED.is_file():
         content = SEED.read_text(encoding='utf-8-sig')
@@ -285,7 +290,7 @@ def event(db, paper_id, kind, day, note='', attempt_id=None, detail=None):
 
 def validate_links(db, body, old=None):
     if body.target_journal_id:
-        required(db, 'submission_journals', body.target_journal_id)
+        resolve_journal(db, body.target_journal_id)
     source_title = old['source_title'] if old else ''
     # Keep historical associations readable even after a project/result was removed.
     unchanged = old and all(old[k] == getattr(body, k) for k in ('project_id', 'source_kind', 'source_id'))
@@ -306,10 +311,43 @@ def validate_links(db, body, old=None):
 
 def paper_detail(db, identity):
     paper = dict(required(db, 'submission_papers', identity))
+    target = db.execute('SELECT name FROM submission_journals WHERE id=?', (paper['target_journal_id'],)).fetchone()
+    paper['target_journal_name'] = target['name'] if target else None
     paper['attempts'] = [dict(r) for r in db.execute('SELECT * FROM submission_attempts WHERE paper_id=? ORDER BY created_at', (identity,))]
     paper['events'] = [{**dict(r), 'detail': json.loads(r['detail_json'])} for r in
                        db.execute('SELECT * FROM submission_events WHERE paper_id=? ORDER BY created_at', (identity,))]
     return paper
+
+
+def resolve_journal(db, identity):
+    """Materialize only a selected public English journal in this private workspace."""
+    if not identity or not identity.startswith('english:'):
+        return required(db, 'submission_journals', identity)
+    catalog_id = identity.removeprefix('english:')
+    link = db.execute('SELECT journal_id FROM submission_english_links WHERE catalog_id=?', (catalog_id,)).fetchone()
+    if link:
+        return required(db, 'submission_journals', link['journal_id'])
+    from backend.english_journals import journal_by_id
+    item = journal_by_id(catalog_id)
+    if db.execute('SELECT 1 FROM submission_journals WHERE id=?', (identity,)).fetchone():
+        raise HTTPException(409, '期刊标识冲突，请刷新后重新选择')
+    timestamp = now()
+    db.execute('INSERT INTO submission_journals VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+               (identity, item['name'], identity, item.get('cas_cat') or item.get('xr_cat') or '',
+                item.get('jcr_q') or '', '', '', '', 0, 1, timestamp, timestamp))
+    db.execute('INSERT INTO submission_english_links VALUES(?,?,?)',
+               (catalog_id, identity, json.dumps(item, ensure_ascii=False)))
+    return required(db, 'submission_journals', identity)
+
+
+def annotate_english_journals(db, journals):
+    links = {row['journal_id']: row for row in db.execute('SELECT * FROM submission_english_links')}
+    for journal in journals:
+        if journal['id'] in links:
+            link = links[journal['id']]
+            journal.update(catalog_kind='english', catalog_id=link['catalog_id'],
+                           issn=json.loads(link['snapshot_json']).get('issn', ''))
+    return journals
 
 
 def public_catalog(db):
@@ -363,6 +401,7 @@ def register(app, connection):
         with connection() as db:
             catalog = public_catalog(db)
             journals = catalog['journals'] if catalog else [dict(r) for r in db.execute('SELECT * FROM submission_journals ORDER BY name')]
+            journals = annotate_english_journals(db, journals)
             datasets = catalog['datasets'] if catalog else [dict(r) for r in db.execute('SELECT * FROM submission_datasets ORDER BY created_at DESC')]
             papers = [dict(r) for r in db.execute('''SELECT p.*, a.journal_name current_journal_name,
                       (SELECT json_group_array(journal_id) FROM submission_attempts WHERE paper_id=p.id) journal_ids,
@@ -495,10 +534,11 @@ def register(app, connection):
             if attempt and day < attempt['last_date']:
                 raise HTTPException(422, '日期不能早于上一条投稿或审稿记录')
             if body.action == 'submit':
-                catalog = public_catalog(db)
                 journal_id = body.journal_id or old['target_journal_id']
+                resolved = resolve_journal(db, journal_id)
+                catalog = public_catalog(db)
                 journal = next((item for item in catalog['journals'] if item['id']==journal_id),None) if catalog else None
-                journal = journal or required(db, 'submission_journals', journal_id)
+                journal = journal or resolved
                 attempt_id = uid()
                 db.execute('INSERT INTO submission_attempts VALUES(?,?,?,?,?,?,?,?,?)',
                            (attempt_id, identity, journal['id'], journal['name'], day, 'review', 1, day, now()))

@@ -1,11 +1,12 @@
 """Administrator ingestion previews and fenced, versioned document processing jobs."""
 from typing import Literal
 from uuid import UUID
-from fastapi import HTTPException,Query
+from fastapi import HTTPException,Query,Depends
 from pydantic import Field,model_validator
 from . import repository as r,retrieval_settings
 from .schemas import Strict,IngestionOptions
 from .shared import private_schema
+from .processing_inventory import InventoryFilters
 
 
 class ProcessingPreview(Strict):
@@ -49,6 +50,7 @@ class DocumentPreview(Strict):
 
 
 class BulkProcess(Strict):
+    filters:InventoryFilters=Field(default_factory=InventoryFilters)
     scope:Literal['filtered','library']='filtered'
     exclude_ids:list[UUID]=Field(default_factory=list,max_length=50000)
     query:str=Field(default='',max_length=200)
@@ -59,7 +61,13 @@ class BulkProcess(Strict):
     expected_policy_version:int|None=Field(default=None,ge=0)
 
 
+class CleanupRequest(Strict):
+    preview_id:UUID
+    confirm:Literal[True]
+
 def register(router,root):
+    from .failure_api import register as register_failures
+    register_failures(router,root)
     def administrator():
         if private_schema():raise HTTPException(403,'入库和加工策略由管理员管理')
 
@@ -67,12 +75,17 @@ def register(router,root):
     def resume_dispatch():
         if not private_schema():
             from .bulk_processing import dispatcher
-            if r.database.health(root())['ready']:dispatcher.start(root())
+            if r.database.health(root())['ready']:
+                dispatcher.start(root())
+                from .index_cleanup import runner
+                runner.start(root())
 
     @router.on_event('shutdown')
     def stop_dispatch():
         from .bulk_processing import dispatcher
         dispatcher.stop()
+        from .index_cleanup import runner
+        runner.stop()
 
     @router.post('/rag-process-all')
     def process_all(payload:BulkProcess):
@@ -85,6 +98,37 @@ def register(router,root):
         administrator()
         from .bulk_processing import control
         return control(root(),identifier,action)
+
+    @router.post('/rag-cancel-all')
+    def cancel_all_ingestion():
+        administrator()
+        from .bulk_processing import cancel_all
+        return cancel_all(root())
+
+    @router.get('/rag-index-history')
+    def index_history(scope:Literal['other_models','all_inactive']='other_models'):
+        administrator()
+        from .index_cleanup import preview
+        return preview(root(),scope)
+
+    @router.get('/rag-index-cleanup')
+    def latest_cleanup():
+        administrator()
+        with r.database.transaction(root()) as db:
+            items=r.rows(db,"SELECT id,state,stage,progress,result,error,updated_at FROM kb_jobs WHERE kind='index_cleanup' AND workspace_key=current_setting('shixue.workspace') ORDER BY created_at DESC,id DESC LIMIT 1")
+        return items[0] if items else None
+
+    @router.post('/rag-index-cleanup')
+    def cleanup_indexes(payload:CleanupRequest):
+        administrator()
+        from .index_cleanup import submit
+        return submit(root(),payload.preview_id)
+
+    @router.get('/rag-index-cleanup/{identifier}')
+    def cleanup_status(identifier:UUID):
+        administrator()
+        from .index_cleanup import status
+        return status(root(),identifier)
 
     @router.post('/rag-preview')
     def preview_processing(payload:ProcessingPreview):
@@ -107,40 +151,11 @@ def register(router,root):
         return {'edition_id':str(edition['id']),'job_id':str(job['id']),'state':job['state']}
 
     @router.get('/rag-documents')
-    def documents(query:str=Query('',max_length=200),offset:int=Query(0,ge=0),state:Literal['all','pending','ready','mismatch','processing','failed']='all',batch_id:str=Query('',max_length=200),limit:int=Query(50,ge=20,le=100)):
+    def documents(query:str=Query('',max_length=200),offset:int=Query(0,ge=0),state:Literal['all','pending','ready','mismatch','processing','failed']='all',batch_id:str=Query('',max_length=200),limit:int=Query(50,ge=20,le=100),sort:Literal['title','title_desc','updated_desc','updated_asc']='title',filters:InventoryFilters=Depends()):
         administrator()
         if limit not in {20,50,100}:raise HTTPException(400,'每页可选择 20、50 或 100 份')
-        with r.database.transaction(root()) as db:
-            from .processing_selection import relation
-            policy=retrieval_settings.read(root(),db)
-            embedding=policy['options']['embedding']
-            base,vector_state,_ready,parameters=relation(embedding,query)
-            summary={key:0 for key in ('pending','ready','mismatch','processing','failed')}
-            summary.update({row['vector_state']:row['total'] for row in r.rows(db,f'SELECT {vector_state} vector_state,count(*) total '+base+' GROUP BY 1',**parameters)})
-            where='' if state=='all' else f' AND ({vector_state})=:state'
-            if state!='all':parameters['state']=state
-            count=sum(summary.values()) if state=='all' else summary[state]
-            # Restrict expensive document details to this page. Rank the queue
-            # once, rather than scanning every queued job for each visible row.
-            items=r.rows(db,f"WITH selected AS MATERIALIZED (SELECT e.id,{vector_state} vector_state "+base+where+
-                " ORDER BY w.title,e.id LIMIT :limit OFFSET :offset), "
-                "recent_jobs AS MATERIALIZED (SELECT DISTINCT ON (payload->>'edition_id') payload->>'edition_id' edition_id, "
-                "id,kind,state,stage,progress,error,result,updated_at,lease_until,payload->>'processing_parent_job' parent_job "
-                "FROM kb_jobs WHERE workspace_key=current_setting('shixue.workspace') AND kind IN ('import','index') "
-                "ORDER BY payload->>'edition_id',CASE WHEN state IN ('queued','running') THEN 0 ELSE 1 END,created_at DESC,id DESC), "
-                "queue_positions AS MATERIALIZED (SELECT id,row_number() OVER (ORDER BY CASE WHEN state='running' THEN 0 ELSE 1 END,created_at,id) position "
-                "FROM kb_jobs WHERE workspace_key=current_setting('shixue.workspace') AND state IN ('queued','running')) "
-                "SELECT selected.vector_state,e.id,w.title,e.label,e.active_revision,e.processing_config,e.processing_version,i.state index_state,i.config, "
-                "EXISTS(SELECT 1 FROM kb_core_books cb WHERE cb.edition_id=e.id) core, "
-                "(SELECT count(*) FROM kb_edition_assets ea JOIN kb_assets a ON a.id=ea.asset_id WHERE ea.edition_id=e.id AND a.availability='present') files, "
-                "CASE WHEN j.id IS NULL THEN NULL ELSE jsonb_build_object('id',j.id,'kind',j.kind,'state',j.state,'stage',j.stage,'progress',j.progress,'error',j.error,'detail',j.result->'progress','chunks',j.result->'chunks', "
-                "'document_progress',CASE WHEN j.kind='import' THEN round(j.progress*.2) WHEN j.parent_job IS NOT NULL THEN round(20+j.progress*.8) ELSE j.progress END, "
-                "'updated_at',j.updated_at,'lease_valid',j.lease_until>clock_timestamp(),'queue_position',CASE WHEN j.state='queued' THEN qp.position ELSE NULL END) END job "
-                "FROM selected JOIN kb_editions e ON e.id=selected.id JOIN kb_works w ON w.id=e.work_id LEFT JOIN kb_indexes i ON i.id=e.active_index "
-                "LEFT JOIN recent_jobs j ON j.edition_id=e.id::text LEFT JOIN queue_positions qp ON qp.id=j.id ORDER BY w.title,e.id",**parameters,offset=offset,limit=limit)
-            from .processing_progress import snapshot
-            progress=snapshot(db,embedding,batch_id)
-        return {'items':items,'total':count,'offset':offset,'limit':limit,'summary':summary,'processing_progress':progress,'policy_version':policy['version'],'embedding':{'model':embedding['model'],'dimensions':embedding['dimensions'],'provider':embedding['provider']}}
+        from .processing_inventory import listing
+        return listing(root(),query,state,offset,limit,batch_id,filters,sort)
 
     @router.get('/rag-documents/{identifier}/policy')
     def document_policy(identifier:UUID):

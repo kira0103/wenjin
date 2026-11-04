@@ -84,4 +84,5 @@ Desktop.ini
 # Local agent experiments, model benchmarks and design audit outputs
 /.dsh/
 /.uiux-audit/
+/.taste-skill/
 /scratch/

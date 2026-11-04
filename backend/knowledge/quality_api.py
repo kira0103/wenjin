@@ -26,7 +26,13 @@ def register(router,root,resolve_scope):
         with r.database.transaction(root()) as connection:
             counts=r.one(connection,"SELECT count(*) documents,count(*) FILTER(WHERE e.active_index IS NOT NULL AND i.state='ready' AND i.model_key IS NOT NULL) vector_ready, "
                          "count(*) FILTER(WHERE i.state='failed') index_failed FROM kb_editions e LEFT JOIN kb_indexes i ON i.id=e.active_index WHERE NOT e.deleted")
-            chunks=r.execute(connection,'SELECT count(*) FROM kb_chunks c JOIN kb_editions e ON e.active_index=c.index_id WHERE NOT e.deleted').scalar_one()
+            # An exact count over the chunks table takes seconds on a multi-million
+            # chunk library and exceeds the 5-second statement budget while a bulk
+            # ingestion is running. The status panel only needs a scale indicator,
+            # so use the table estimate once the table is large.
+            estimate=r.execute(connection,"SELECT reltuples::bigint FROM pg_class WHERE oid='public.kb_chunks'::regclass").scalar_one()
+            chunks=(estimate if estimate and estimate>500000 else
+                    r.execute(connection,'SELECT count(*) FROM kb_chunks c JOIN kb_editions e ON e.active_index=c.index_id WHERE NOT e.deleted').scalar_one())
             jobs=r.rows(connection,"SELECT id,state,stage,progress,error FROM kb_jobs WHERE kind='rerank_model' AND workspace_key=current_setting('shixue.workspace') ORDER BY created_at DESC LIMIT 1")
             from .embedding_api import status as embedding_status
             embedding=embedding_status(root(),connection)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import hashlib
+import os
 import re
 from pathlib import Path
 from time import monotonic
@@ -19,6 +20,15 @@ from .models import recognize,embed
 from .text import normalize,tokenize,tokenize_normalized,IDENTITY
 from .chunking import configured_spans,index_spans,stored_config,IDENTITY as CHUNKER_IDENTITY
 from .embedding_config import EmbeddingOptions,space as embedding_space
+
+# Background publication has a separate budget from interactive 5-second reads.
+# Incremental HNSW maintenance on a large desktop library can pause a batch well
+# past the former 120-second cap, so these remain generous and are only applied
+# inside the publication transaction (ordinary queries still use 5 s / 3 s).
+INDEX_WRITE_STATEMENT_SECONDS=int(os.environ.get('SHIXUE_INDEX_WRITE_STATEMENT_SECONDS','600'))
+INDEX_WRITE_LOCK_SECONDS=int(os.environ.get('SHIXUE_INDEX_WRITE_LOCK_SECONDS','60'))
+INDEX_WRITE_BUDGET_SECONDS=int(os.environ.get('SHIXUE_INDEX_WRITE_BUDGET_SECONDS','3600'))
+INDEX_WRITE_BATCH_SIZE=128
 
 
 def page_signals(page,value):
@@ -142,7 +152,7 @@ def job_gate(connection,payload,result=None):
     if job['state']!='running' or job['owner']!=payload['_job_owner']:
         raise HTTPException(409,'任务已取消或被其他执行器接管，停止发布')
     if result is not None:
-        r.execute(connection,"UPDATE kb_jobs SET state='succeeded',stage='complete',progress=100,result=CAST(:result AS jsonb),lease_until=NULL,updated_at=now() WHERE id=:id",id=payload['_job_id'],result=r.j(result))
+        r.execute(connection,"UPDATE kb_jobs SET state='succeeded',stage='complete',progress=100,result=CAST(:result AS jsonb)||CASE WHEN result ? 'diagnostic_history' THEN jsonb_build_object('diagnostic_history',result->'diagnostic_history') ELSE '{}'::jsonb END,lease_until=NULL,updated_at=now() WHERE id=:id",id=payload['_job_id'],result=r.j(result))
 
 
 def process_import(root,payload,check,progress):
@@ -192,10 +202,12 @@ def process_import(root,payload,check,progress):
         batch=payload.get('processing_batch')
         if not batch and payload.get('_job_id'):
             batch=r.execute(connection,"SELECT COALESCE(payload->>'processing_batch','legacy:'||created_at::text) FROM kb_jobs WHERE id=:id",id=payload['_job_id']).scalar()
-        r.queue(connection,'index',{'edition_id':payload['edition_id'],'revision_id':result['revision_id'],'config':processing['chunking'],
+        child=r.queue(connection,'index',{'edition_id':payload['edition_id'],'revision_id':result['revision_id'],'config':processing['chunking'],
                                    'processing_batch':batch or r.uid(),'processing_parent_job':payload.get('_job_id'),
                                    'embedding':payload.get('embedding') or EmbeddingOptions().model_dump(mode='json'),
                                    **{k:payload[k] for k in ('policy_version','policy_source','document_policy_version') if k in payload}})
+        if payload.get('_job_id'):
+            r.execute(connection,"UPDATE kb_jobs SET result=jsonb_build_object('diagnostic_history',parent.result->'diagnostic_history') FROM kb_jobs parent WHERE kb_jobs.id=:child AND parent.id=:parent AND parent.result ? 'diagnostic_history'",child=child['id'],parent=payload['_job_id'])
         job_gate(connection,payload,result)
     return result
 
@@ -220,6 +232,7 @@ def _process_index(root,payload,check,progress):
     config=stored_config(payload.get('config') or previous_config)
     from .models import configuration
     embedding=configuration(root)[0]
+    from .embedding_batcher import embedding_batcher
     from .adaptive_chunking import plan_blocks
     done=0;semantic_count=0
     def chunk_progress(completed,total):
@@ -260,13 +273,29 @@ def _process_index(root,payload,check,progress):
                          'normalized':normalized,'tokens':tokenize_normalized(heading(item['block'].get('section_path',''))+' '+normalized),
                          'v':r.j(vector),'parents':r.j(item['parent_spans'])})
         return rows
-    # One model call per configured batch (a 64+ batch also cuts the number of
-    # progress/lease transactions); 32 keeps the old cadence for small settings.
+    # One model call per configured batch; the queue below keeps up to
+    # SHIXUE_EMBED_PREFETCH batches in flight per document so the shared GPU
+    # batcher always has work while another document is writing to PostgreSQL.
     step=max(32,int(embedding.get('batch_size') or 16))
+    prefetch=max(1,min(4,int(os.environ.get('SHIXUE_EMBED_PREFETCH','2'))))
     identifier=r.uid();model_key='';materialized=[];last_check=0.0
+    from collections import deque
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=1,thread_name_prefix='kb-chunk-materialize') as pool:
         pending=[]
+        inflight=deque()
+        completed=0
+        def collect_oldest():
+            nonlocal completed,model_key
+            batch_items,future=inflight.popleft()
+            values,key=future.result()
+            if len(values)!=len(batch_items):raise RuntimeError('嵌入模型返回数量与分块不匹配')
+            if any(len(vector)!=embedding['dimensions'] for vector in values):raise RuntimeError('模型返回维度与入库任务的固定配置不一致')
+            if not model_key:model_key=key
+            pending.append(pool.submit(materialize,batch_items,values))
+            for item in batch_items:file_completed[str(item['block']['asset_id'])]+=1
+            completed+=len(batch_items)
+            progress('embedding',30+int(60*completed/len(items)),vector_detail(completed))
         for start in range(0,len(items),step):
             now=monotonic()
             if now-last_check>=1.0:
@@ -274,18 +303,33 @@ def _process_index(root,payload,check,progress):
             progress('embedding',30+int(60*start/len(items)),vector_detail(start))
             batch_items=items[start:start+step]
             batch=[title+' '+item['block'].get('section_path','')+' '+item['index_text'] for item in batch_items]
-            values,model_key=embed(root,batch)
-            if len(values)!=len(batch):raise RuntimeError('嵌入模型返回数量与分块不匹配')
-            if any(len(vector)!=embedding['dimensions'] for vector in values):raise RuntimeError('模型返回维度与入库任务的固定配置不一致')
-            pending.append(pool.submit(materialize,batch_items,values))
-            for item in batch_items:file_completed[str(item['block']['asset_id'])]+=1
-            completed=min(start+len(values),len(items));progress('embedding',30+int(60*completed/len(items)),vector_detail(completed))
+            # Coalesce this batch with concurrent documents' batches so small
+            # documents do not waste GPU capacity with half-empty model calls.
+            inflight.append((batch_items,embedding_batcher.submit(root,embedding,batch,embed)))
+            while len(inflight)>prefetch:collect_oldest()
+        while inflight:collect_oldest()
         for future in pending:materialized.extend(future.result())
-    check();progress('writing_index',95,vector_detail(len(items)))
+    block_assets={str(item['block']['id']):str(item['block']['asset_id']) for item in items}
+    written_files=Counter()
+    def writing_progress(completed):
+        progress('writing_index',95+int(4*completed/max(1,len(materialized))),
+                 {'completed':completed,'total':len(materialized),'embedded':len(items),'unit':'chunks',
+                  'statement_timeout_seconds':INDEX_WRITE_STATEMENT_SECONDS,
+                  'files':[{'filename':filenames.get(asset,'原件'),'completed':written_files[asset],'total':total} for asset,total in list(file_totals.items())[:100]]})
+    check();writing_progress(0)
+    write_deadline=monotonic()+INDEX_WRITE_BUDGET_SECONDS
     with r.database.transaction(root) as connection:
-        active=r.one(connection,'SELECT active_revision FROM kb_editions WHERE id=:id AND NOT deleted FOR UPDATE',id=payload['edition_id'])
+        def write_budget():
+            remaining=write_deadline-monotonic()
+            if remaining<=0:raise TimeoutError('向量索引写入超过后台总预算')
+            milliseconds=max(1,int(min(INDEX_WRITE_STATEMENT_SECONDS,remaining)*1000))
+            r.execute(connection,"SELECT set_config('statement_timeout',:timeout,true)",timeout=str(milliseconds)+'ms')
+        write_budget()
+        r.execute(connection,"SELECT set_config('lock_timeout',:timeout,true)",timeout=str(INDEX_WRITE_LOCK_SECONDS)+'s')
+        active=r.one(connection,'SELECT active_revision FROM kb_editions WHERE id=:id AND NOT deleted',id=payload['edition_id'])
         if str(active['active_revision'])!=revision:raise HTTPException(409,'文本已更改，索引未发布')
-        job_gate(connection,payload)
+        # All new rows stay uncommitted. Do not lock the edition or task during
+        # bulk insertion: heartbeat, cancellation and readers must remain free.
         r.execute(connection,'INSERT INTO kb_indexes(id,revision_id,model_key,state,config) VALUES(:i,:r,:key,\'ready\',CAST(:c AS jsonb))',
                   i=identifier,r=revision,key=model_key,c=r.j({**config,'tokenizer':IDENTITY,'chunker':CHUNKER_IDENTITY,'dimensions':embedding['dimensions'],'embedding':embedding,
                                                            'embedding_space':embedding_space(embedding),
@@ -293,8 +337,18 @@ def _process_index(root,payload,check,progress):
                                                            'policy':{k:payload[k] for k in ('policy_version','policy_source','document_policy_version') if k in payload}}))
         for row in materialized:row['idx']=identifier
         from sqlalchemy import text
-        connection.execute(text('INSERT INTO kb_chunks(id,index_id,block_id,start_offset,end_offset,body,normalized,tokens,embedding,parent_spans) '
-                           "VALUES(:id,:idx,:b,:s,:e,:body,:normalized,to_tsvector('simple',:tokens),CAST(:v AS vector),CAST(:parents AS jsonb))"),materialized)
+        insert=text('INSERT INTO kb_chunks(id,index_id,block_id,start_offset,end_offset,body,normalized,tokens,embedding,parent_spans) '
+                    "VALUES(:id,:idx,:b,:s,:e,:body,:normalized,to_tsvector('simple',:tokens),CAST(:v AS vector),CAST(:parents AS jsonb))")
+        for start in range(0,len(materialized),INDEX_WRITE_BATCH_SIZE):
+            check();write_budget()
+            batch_rows=materialized[start:start+INDEX_WRITE_BATCH_SIZE]
+            connection.execute(insert,batch_rows)
+            for row in batch_rows:written_files[block_assets[str(row['b'])]]+=1
+            writing_progress(start+len(batch_rows))
+        check();write_budget()
+        active=r.one(connection,'SELECT active_revision FROM kb_editions WHERE id=:id AND NOT deleted FOR UPDATE',id=payload['edition_id'])
+        if str(active['active_revision'])!=revision:raise HTTPException(409,'文本已更改，索引未发布')
+        job_gate(connection,payload)
         r.execute(connection,'UPDATE kb_editions SET active_index=:i WHERE id=:e',i=identifier,e=payload['edition_id'])
         job_gate(connection,payload,{'index_id':identifier,'model_key':model_key,'chunks':len(items),'analysis':plan['analysis'],'progress':vector_detail(len(items))})
     return {'index_id':identifier,'model_key':model_key,'chunks':len(items),'analysis':plan['analysis'],'progress':vector_detail(len(items))}

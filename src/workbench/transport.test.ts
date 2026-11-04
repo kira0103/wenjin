@@ -5,6 +5,16 @@ import { setStorageAccount } from './storage';
 afterEach(() => { vi.useRealTimers(); setLibraryAdminApi(false);setSystemLibraryApi(false);setStorageAccount('');vi.unstubAllGlobals(); });
 
 describe('API transport', () => {
+  it('binds login and business requests to their page entry',async()=>{
+    const fetch=vi.fn().mockImplementation(()=>Promise.resolve(Response.json({ok:true})));vi.stubGlobal('fetch',fetch);
+    vi.stubGlobal('window',{location:{pathname:'/admin/'},dispatchEvent:vi.fn()});
+    await send({path:'/api/session'});
+    await send({path:'/api/admin/users'});
+    vi.stubGlobal('window',{location:{pathname:'/app/'},dispatchEvent:vi.fn()});
+    await send({path:'/api/session',method:'DELETE'});
+    await send({path:'/api/projects'});
+    expect(fetch.mock.calls.map(c=>c[1].headers['X-Wenjin-Portal'])).toEqual(['admin','admin','app','app']);
+  });
   it('reads system originals separately while keeping research and uploads private',async()=>{
     vi.stubGlobal('window',{dispatchEvent:vi.fn()});
     const fetch=vi.fn().mockImplementation(()=>Promise.resolve(Response.json({ok:true})));vi.stubGlobal('fetch',fetch);
@@ -31,7 +41,7 @@ describe('API transport', () => {
     expect(fetch.mock.calls.map(item=>item[0])).toEqual(['/api/admin/library/knowledge/catalog','/api/admin/library/uploads','/api/admin/users','/api/me','/api/knowledge/notes']);
   });
   it('rejects paths outside the API boundary', () => {
-    for (const path of ['https://example.com/api', '//example.com/api', '/api/../file', '/api/\\file']) expect(() => apiPath(path)).toThrow();
+    for (const path of ['https://outside.invalid/api', '//outside.invalid/api', '/api/../file', '/api/\\file']) expect(() => apiPath(path)).toThrow();
     expect(apiPath('/api/projects?query=%E5%8E%9F%E6%96%87')).toContain('/api/projects');
   });
   it('sends browser file bytes with session credentials and returns image bytes', async () => {

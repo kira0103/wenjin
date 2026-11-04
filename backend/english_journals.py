@@ -130,8 +130,19 @@ def query_journals(payload, q='', discipline='', jcr=None, cas=None, xr=None, to
             'items': items[start:start + page_size], 'meta': payload.get('meta') or {}}
 
 
+def journal_by_id(identity):
+    item = next((item for item in load()['journals'] if item['id'] == identity), None)
+    if item is None:
+        raise HTTPException(404, '英文期刊不存在，请重新从期刊库选择')
+    return item
+
+
 def register(app, connection=None):
     """注册英文期刊库只读接口（不需要数据库连接）。"""
+    @app.get('/api/submissions/english-journals/{identity}')
+    def english_journal(identity: str):
+        return journal_by_id(identity)
+
     @app.get('/api/submissions/english-journals')
     def english_journals(
         q: str = Query('', max_length=200, description='刊名或 ISSN 关键字，不区分大小写'),

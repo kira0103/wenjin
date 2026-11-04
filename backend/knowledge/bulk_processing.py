@@ -18,6 +18,9 @@ def submit(root,request):
         query='' if request.scope=='library' else request.query
         selected_state='all' if request.scope=='library' else request.state
         base,state,ready,parameters=relation(policy['options']['embedding'],query)
+        from .processing_inventory import predicate,InventoryFilters
+        inventory=request.filters if request.scope!='library' else InventoryFilters()
+        extra,values=predicate(inventory);base+=extra;parameters.update(values)
         where=" AND COALESCE(latest_job.state,'') NOT IN ('queued','running') AND (e.active_revision IS NOT NULL OR EXISTS(SELECT 1 FROM kb_edition_assets ea JOIN kb_assets a ON a.id=ea.asset_id WHERE ea.edition_id=e.id AND a.availability='present'))"
         if selected_state!='all':where+=f' AND ({state})=:state';parameters['state']=selected_state
         if request.exclude_ids:
@@ -26,7 +29,7 @@ def submit(root,request):
         targets=r.rows(db,'SELECT e.id,e.active_revision revision_id,e.processing_config,e.processing_version '+base+where+' ORDER BY e.id',**parameters)
         if not targets:raise HTTPException(409,'没有需要新增处理的文献；已排队或已就绪的文献会自动跳过')
         payload={'processing':request.processing.model_dump() if request.processing else policy['options']['ingestion'],'embedding':policy['options']['embedding'],
-                 'policy_version':policy['version'],'use_document_policies':request.use_document_policies,'skip_ready':request.skip_ready,'scope':request.scope,'query':query,'state':selected_state,'exclude_ids':[str(identifier) for identifier in request.exclude_ids],'targets':targets}
+                 'policy_version':policy['version'],'use_document_policies':request.use_document_policies,'skip_ready':request.skip_ready,'scope':request.scope,'query':query,'state':selected_state,'exclude_ids':[str(identifier) for identifier in request.exclude_ids],'filters':inventory.model_dump(),'targets':targets}
         # UUIDs inside the frozen manifest use JSON values, never Python repr.
         for item in targets:
             item['id']=str(item['id']);item['revision_id']=str(item['revision_id']) if item['revision_id'] else None
@@ -54,6 +57,9 @@ def dispatch_slice(root,identifier,owner):
     with r.database.transaction(root) as db:
         job=r.one(db,"SELECT * FROM kb_jobs WHERE id=:id AND workspace_key=current_setting('shixue.workspace') FOR UPDATE",id=identifier)
         if job['state']!='dispatching' or job['owner']!=owner:return False
+        if job['payload'].get('retry_original'):
+            from .failure_service import dispatch_retry
+            return dispatch_retry(db,job,owner)
         payload=job['payload'];state=job['result'];targets=payload['targets'];start=state.get('cursor',0);scheduled=state.get('scheduled',0);skipped=state.get('skipped',0)
         ids=[selected['id'] for selected in targets[start:start+50]]
         current_rows=r.rows(db,'SELECT id,active_revision,EXISTS(SELECT 1 FROM kb_core_books cb WHERE cb.edition_id=e.id) core FROM kb_editions e WHERE id=ANY(CAST(:ids AS uuid[])) AND NOT deleted AND owner_role IS NULL ORDER BY id FOR UPDATE',ids=ids)
@@ -111,3 +117,16 @@ class Dispatcher:
 
 
 dispatcher=Dispatcher()
+
+
+def cancel_all(root):
+    """Stop only system ingestion, including not-yet-dispatched manifests."""
+    with r.database.transaction(root) as db:
+        r.execute(db,"SELECT pg_advisory_xact_lock(hashtextextended(current_setting('shixue.workspace')||'rag-bulk',0))")
+        controllers=r.rows(db,"SELECT id FROM kb_jobs WHERE workspace_key=current_setting('shixue.workspace') AND kind='rag_batch' AND (state='dispatching' OR EXISTS(SELECT 1 FROM kb_jobs child WHERE child.workspace_key=current_setting('shixue.workspace') AND child.payload->>'processing_batch'=kb_jobs.id::text AND child.state IN ('queued','running'))) ORDER BY id FOR UPDATE")
+        for job in controllers:r.execute(db,"UPDATE kb_jobs SET state='cancelled',stage='cancelled',owner=NULL,lease_until=NULL,updated_at=now() WHERE id=:id",id=job['id'])
+        # Wait for an in-flight publish before the next statement; any index
+        # child created by that publish is included in the cancellation below.
+        r.rows(db,"SELECT id FROM kb_jobs WHERE workspace_key=current_setting('shixue.workspace') AND kind IN ('import','index') AND state IN ('queued','running') ORDER BY id FOR UPDATE")
+        cancelled=r.rows(db,"UPDATE kb_jobs SET state='cancelled',stage='cancelled',owner=NULL,lease_until=NULL,updated_at=now() WHERE workspace_key=current_setting('shixue.workspace') AND kind IN ('import','index') AND state IN ('queued','running') RETURNING kind")
+        return {'cancelled_jobs':len(cancelled),'cancelled_dispatches':len(controllers),'by_kind':{kind:sum(j['kind']==kind for j in cancelled) for kind in ('import','index')}}
