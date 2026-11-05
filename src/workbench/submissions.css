@@ -102,3 +102,13 @@
 .journal-combobox-list small { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--text-2); }
 .journal-combobox-star { flex: none; font-size: var(--fs-xs); color: var(--accent-on-soft); background: var(--accent-soft); border-radius: 999px; padding: 1px var(--sp-2); }
 .journal-combobox-empty { padding: var(--sp-3); color: var(--text-2); font-size: var(--fs-xs); cursor: default; }
+
+
+/* 中文 C 刊库：列表视图 */
+.journal-wall { display: flex; flex-direction: column; gap: 8px; }
+.journal-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 12px 16px; border: 1px solid var(--line); border-top: 1px solid var(--line); border-radius: var(--r-2); }
+.journal-note h3 { flex: 1 1 260px; margin: 0; font-size: var(--fs-md); line-height: 1.5; }
+.journal-note > p { margin: 0; color: var(--text-2); font-size: var(--fs-xs); }
+.journal-note .journal-note-top { order: 2; gap: 8px; }
+.journal-note .journal-links { order: 3; margin: 0; }
+.journal-note .journal-note-bottom { order: 4; margin: 0; padding: 0; border: 0; gap: 16px; }
