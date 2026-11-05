@@ -112,3 +112,14 @@
 .journal-note .journal-note-top { order: 2; gap: 8px; }
 .journal-note .journal-links { order: 3; margin: 0; }
 .journal-note .journal-note-bottom { order: 4; margin: 0; padding: 0; border: 0; gap: 16px; }
+
+/* 中文 C 刊库：表格列表视图 */
+.journal-table-scroll { border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); }
+.journal-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.journal-table th { padding: 10px 12px; text-align: left; font-size: var(--fs-xs); font-weight: 600; color: var(--text-2); background: var(--surface-2); white-space: nowrap; }
+.journal-table td { padding: 10px 12px; border-top: 1px solid var(--line); vertical-align: middle; }
+.journal-table td strong { display: block; font-weight: 500; line-height: 1.5; }
+.journal-legacy { display: block; margin-top: 2px; color: var(--text-3); font-size: var(--fs-xs); }
+.journal-count { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.journal-favorite { color: var(--text-3); }
+.journal-favorite[aria-pressed="true"] { color: var(--warning); }

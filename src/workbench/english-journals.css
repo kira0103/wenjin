@@ -73,3 +73,9 @@
   .ej-reset { margin-left: 0; }
   .ej-table-wrap { max-height: 58vh; }
 }
+
+/* 筛选条：网格排布，窄屏自动换行，不再挤压/裁切 */
+.ej-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
+.ej-search { grid-column: 1 / -1; max-width: none; min-width: 0; }
+.ej-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--sp-2); }
+.ej-field select { width: 100%; min-width: 0; }
