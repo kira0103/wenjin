@@ -212,30 +212,16 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
       <label className="ej-search"><Search size={16} aria-hidden="true" />
         <input aria-label="搜索英文期刊刊名或 ISSN" placeholder="搜索刊名或 ISSN" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} />
       </label>
-      <label className="ej-field">学科<select aria-label="按学科筛选" value={discipline} onChange={event => change(() => setDiscipline(event.target.value))}>
-        <option value="">全部学科</option>
-        {disciplines.map(entry => <option key={entry.name} value={entry.name}>{entry.name}（{formatCount(entry.count)}）</option>)}
-      </select></label>
-      <label className="ej-field">JCR<select aria-label="按 JCR 分区筛选" value={jcr} onChange={event => change(() => setJcr(Number(event.target.value)))}>
-        <option value={0}>全部</option>
-        {JCR_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select></label>
-      <label className="ej-field">中科院<select aria-label="按中科院分区筛选" value={cas} onChange={event => change(() => setCas(Number(event.target.value)))}>
-        <option value={0}>全部</option>
-        {TIER_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select></label>
-      <label className="ej-field">新锐<select aria-label="按新锐分区筛选" value={xr} onChange={event => change(() => setXr(Number(event.target.value)))}>
-        <option value={0}>全部</option>
-        {TIER_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select></label>
+      <EjSelect label="学科" value={discipline} options={[{ value: '', label: '全部学科' }, ...disciplines.map(entry => ({ value: entry.name, label: `${entry.name}（${formatCount(entry.count)}）` }))]} onChange={value => change(() => setDiscipline(value))} />
+      <EjSelect label="JCR" value={String(jcr)} options={[{ value: '0', label: '全部' }, ...JCR_OPTIONS.map(option => ({ value: String(option.value), label: option.label }))]} onChange={value => change(() => setJcr(Number(value)))} />
+      <EjSelect label="中科院" value={String(cas)} options={[{ value: '0', label: '全部' }, ...TIER_OPTIONS.map(option => ({ value: String(option.value), label: option.label }))]} onChange={value => change(() => setCas(Number(value)))} />
+      <EjSelect label="新锐" value={String(xr)} options={[{ value: '0', label: '全部' }, ...TIER_OPTIONS.map(option => ({ value: String(option.value), label: option.label }))]} onChange={value => change(() => setXr(Number(value)))} />
     </div>
     <div className="ej-filter-summary">
       {favoritesEnabled && <label className="ej-check"><input type="checkbox" aria-label="只看收藏" checked={favoritesOnly} onChange={event => change(() => setFavoritesOnly(event.target.checked))} />只看收藏</label>}
       <label className="ej-check"><input type="checkbox" aria-label="只看中科院 Top" checked={top} onChange={event => change(() => setTop(event.target.checked))} />只看中科院 Top</label>
       <label className="ej-check"><input type="checkbox" aria-label="只看新锐 Top" checked={xrTop} onChange={event => change(() => setXrTop(event.target.checked))} />只看新锐 Top</label>
-      <label className="ej-field">排序<select aria-label="排序方式" value={sort} onChange={event => change(() => setSort(event.target.value as SortKey))}>
-        {SORT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select></label>
+      <EjSelect label="排序" value={sort} options={SORT_OPTIONS.map(option => ({ value: option.value, label: option.label }))} onChange={value => change(() => setSort(value as SortKey))} />
       <button type="button" className="button-secondary ej-reset" aria-label="重置筛选" onClick={reset}><RotateCcw size={16} aria-hidden="true"/>重置</button>
       <p className="ej-stats" role="status" aria-live="polite"><span>{hasFilter?'筛选后':'共'} <strong>{data?formatCount(data.total):'—'}</strong> 种{loading&&<span className="ej-loading">正在更新…</span>}</span></p>
       {data&&<JournalSourceDetails><p>{data.meta.label} · 共 {formatCount(data.meta.count)} 种 · 生成于 {data.meta.generated_at}</p>{Object.entries(data.meta.sources).map(([key,value])=><p key={key}>{value}</p>)}{data.meta.notes.map((note,index)=><p key={index}>{note}</p>)}<p>分区与 IF 仅作投稿参考，投稿前请核对期刊当前收录状态与要求</p></JournalSourceDetails>}
@@ -272,9 +258,7 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
       <button type="button" className="button-secondary" disabled={loading || page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}>上一页</button>
       <span>第 {shownPage} / {shownPages} 页 · 共 {formatCount(data.total)} 种</span>
       <button type="button" className="button-secondary" disabled={loading || page >= shownPages} onClick={() => setPage(value => Math.min(shownPages, value + 1))}>下一页</button>
-      <label className="ej-field">每页<select aria-label="每页条数" value={pageSize} onChange={event => change(() => setPageSize(Number(event.target.value)))}>
-        {PAGE_SIZES.map(size => <option key={size} value={size}>{size} 条</option>)}
-      </select></label>
+      <EjSelect label="每页" value={String(pageSize)} options={PAGE_SIZES.map(size => ({ value: String(size), label: `${size} 条` }))} onChange={value => change(() => setPageSize(Number(value)))} />
     </div>}
 
 
@@ -363,3 +347,17 @@ function JournalRowBase({ item, expanded, onToggle, favoriteEnabled, onFavorite,
 }
 
 const JournalRow = memo(JournalRowBase);
+
+
+function EjSelect({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange(value: string): void }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  const current = options.find(option => option.value === value)?.label ?? options[0]?.label ?? '';
+  return <details className="ej-select" ref={ref}>
+    <summary aria-label={label}><span className="ej-select-value">{current}</span><ChevronDown size={16} aria-hidden="true" /></summary>
+    <ul role="listbox" aria-label={label}>{options.map(option => (
+      <li key={option.value}>
+        <button type="button" role="option" aria-selected={option.value === value} onClick={() => { onChange(option.value); if (ref.current) ref.current.open = false; }}>{option.label}</button>
+      </li>
+    ))}</ul>
+  </details>;
+}

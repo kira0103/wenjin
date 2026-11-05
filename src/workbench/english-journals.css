@@ -96,3 +96,15 @@
 
 /* 最终对齐全局 select 默认样式（与 C 刊页一致） */
 .ej-field select{width:auto;min-width:132px;max-width:100%;height:auto;min-height:0;padding:8px 10px;font-family:inherit;font-size:14px;line-height:normal;}
+
+/* 自绘下拉（避免原生 select 在部分缩放比例下裁切） */
+.ej-select { position: relative; min-width: 132px; font-size: 14px; color: var(--text); }
+.ej-select > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); min-height: 36px; padding: 0 10px 0 12px; border: 1px solid var(--control-border); border-radius: var(--r-2); background: var(--surface); cursor: pointer; list-style: none; font-size: 14px; line-height: 1.4; }
+.ej-select > summary::-webkit-details-marker { display: none; }
+.ej-select > summary:hover { border-color: var(--accent); }
+.ej-select[open] > summary { border-color: var(--accent); outline: 2px solid var(--focus); outline-offset: 1px; }
+.ej-select-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ej-select > ul { position: absolute; z-index: var(--z-dialog); top: calc(100% + 4px); left: 0; min-width: 100%; max-height: 280px; overflow: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); box-shadow: var(--shadow-pop); }
+.ej-select > ul button { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: var(--r-1); background: transparent; color: var(--text); font-size: 13px; white-space: nowrap; cursor: pointer; }
+.ej-select > ul button:hover { background: var(--surface-2); }
+.ej-select > ul button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-on-soft); }
