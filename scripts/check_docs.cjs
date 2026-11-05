@@ -1,7 +1,7 @@
 /* Keep the maintained guides linked to current files and startup commands. */
 const fs=require('node:fs'),path=require('node:path'),{execFileSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..');
-const maintained=['README.md','docs/MAINTENANCE.md','docs/PERFORMANCE.md'];
+const maintained=['README.md','docs/MAINTENANCE.md','docs/PERFORMANCE.md','docs/UIUX-Unslop全站评审-2026-11-05.md'];
 const read=file=>fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'');
 const npmPattern=/\bnpm\s+(?:run\s+([A-Za-z0-9][\w:-]*)|(start|stop|test)\b)/g;
 const modulePattern=/(?:^|\s)-m\s+(backend[\w.]*)/;
