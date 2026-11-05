@@ -124,7 +124,7 @@ export default function AdminConsole({user,onLogout}:{user:PortalUser;onLogout()
       <button className="portal-icon-button portal-mobile-close" aria-label="关闭管理导航" onClick={()=>setMobileNav(false)}><X size={18}/></button>
       <div className="portal-sidebar-caption">内容与配置</div>
       <nav>{navigation.map(([key,label,Icon])=><Fragment key={key}>{key==='users'&&<div className="portal-sidebar-caption portal-nav-group">服务管理</div>}{key==='account'&&<div className="portal-sidebar-caption portal-nav-group">偏好设置</div>}<button aria-current={section===key?'page':undefined} className={section===key?'active':''} onClick={()=>void navigate(key)}><Icon size={18}/>{label}{key==='users'&&overview&&<small>{overview.users}</small>}</button></Fragment>)}</nav>
-      <div className="portal-sidebar-bottom"><div><ShieldCheck size={18}/><span>公共资料，独立研究</span></div><a href="/app/">进入个人研究工作区<ArrowUpRight size={16}/></a></div>
+      <div className="portal-sidebar-bottom"><div><ShieldCheck size={18}/><span>公共资料，独立研究</span></div><a href="/app/">研究工作区（需研究账号）<ArrowUpRight size={16}/></a></div>
     </aside>
     {mobileNav&&<button className="portal-nav-backdrop" aria-label="关闭导航遮罩" onClick={()=>setMobileNav(false)}/>}
     <div className="portal-admin-main">

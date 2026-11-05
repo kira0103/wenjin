@@ -175,6 +175,8 @@ def create_app(root, ui_dir=None, fleet=None):
                     return JSONResponse({'detail': '请先修改临时密码', 'code': 'password_change_required'}, status_code=403)
                 if path.startswith('/api/admin') and (user['role'] != 'admin' or request.state.portal_scope != 'admin'):
                     return JSONResponse({'detail': '此操作需要管理员权限'}, status_code=403)
+                if user['role'] == 'admin' and request.state.portal_scope != 'admin' and path != '/api/me':
+                    return JSONResponse({'detail': '管理员账号不能使用研究工作区，请从管理后台登录', 'code': 'admin_scope_only'}, status_code=403)
         response = await call_next(request)
         if path.startswith('/api/'):
             response.headers['Cache-Control'] = 'no-store'
@@ -210,6 +212,9 @@ def create_app(root, ui_dir=None, fleet=None):
         if request.state.portal_scope == 'admin' and user['role'] != 'admin':
             accounts.logout(token)
             raise HTTPException(403, '普通账号请从用户端登录，管理端需要管理员账号')
+        if request.state.portal_scope != 'admin' and user['role'] == 'admin':
+            accounts.logout(token)
+            raise HTTPException(403, '管理员账号请从管理后台登录，研究工作区仅限研究账号')
         response = JSONResponse({'authenticated': True, 'mode': 'portal', 'portal': request.state.portal_scope, 'user': user})
         response.set_cookie(session_cookie(request), token, max_age=SESSION_SECONDS, httponly=True, secure=request.url.scheme == 'https', samesite='strict', path='/api')
         response.delete_cookie(LEGACY_COOKIE, path='/api')
