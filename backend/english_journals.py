@@ -115,7 +115,7 @@ def sort_journals(journals, sort='if'):
 
 
 def query_journals(payload, q='', discipline='', jcr=None, cas=None, xr=None, top=False,
-                   xrtop=False, sort='if', page=1, page_size=50):
+                   xrtop=False, sort='if', page=1, page_size=50, only_ids=None):
     """过滤 + 排序 + 分页，返回接口响应体。"""
     if page < 1:
         raise ValueError('page 必须不小于 1')
@@ -123,6 +123,8 @@ def query_journals(payload, q='', discipline='', jcr=None, cas=None, xr=None, to
         raise ValueError('page_size 必须在 1–200 之间')
     items = sort_journals(filter_journals(payload, q=q, discipline=discipline, jcr=jcr, cas=cas,
                                           xr=xr, top=top, xrtop=xrtop), sort)
+    if only_ids is not None:
+        items = [item for item in items if item.get('id') in only_ids]
     total = len(items)
     pages = (total + page_size - 1) // page_size
     start = (page - 1) * page_size
@@ -138,7 +140,16 @@ def journal_by_id(identity):
 
 
 def register(app, connection=None):
-    """注册英文期刊库只读接口（不需要数据库连接）。"""
+    """注册英文期刊库接口；传入 connection 时附带个人收藏状态（只读数据，不建表）。"""
+
+    def favorite_marks():
+        if connection is None:
+            return {}
+        with connection() as db:
+            rows = db.execute('''SELECT l.catalog_id, j.favorite FROM submission_english_links l
+                                 JOIN submission_journals j ON j.id=l.journal_id''').fetchall()
+            return {row[0]: bool(row[1]) for row in rows}
+
     @app.get('/api/submissions/english-journals/{identity}')
     def english_journal(identity: str):
         return journal_by_id(identity)
@@ -152,9 +163,15 @@ def register(app, connection=None):
         xr: int | None = Query(None, ge=1, le=4, description='新锐分区 n 区及以上'),
         top: bool = Query(False, description='只看中科院 Top'),
         xrtop: bool = Query(False, description='只看新锐 Top'),
+        favorite: bool = Query(False, description='只看已收藏期刊'),
         sort: str = Query('if', pattern='^(if|cas|jcr|xr|name)$'),
         page: int = Query(1, ge=1),
         page_size: int = Query(50, ge=1, le=200),
     ):
-        return query_journals(load(), q=q, discipline=discipline, jcr=jcr, cas=cas, xr=xr,
-                              top=top, xrtop=xrtop, sort=sort, page=page, page_size=page_size)
+        marks = favorite_marks()
+        result = query_journals(load(), q=q, discipline=discipline, jcr=jcr, cas=cas, xr=xr,
+                                top=top, xrtop=xrtop, sort=sort, page=page, page_size=page_size,
+                                only_ids={key for key, value in marks.items() if value} if favorite else None)
+        for item in result['items']:
+            item['favorite'] = bool(marks.get(item.get('id')))
+        return result

@@ -426,6 +426,19 @@ def register(app, connection):
                        (int(body['favorite']),notes,now(),identity))
             return dict(required(db,'submission_journals',identity))
 
+    @app.patch('/api/submissions/english-journals/{identity}/favorite')
+    def english_journal_favorite(identity: str, body: dict):
+        if set(body) != {'favorite'} or not isinstance(body.get('favorite'), bool):
+            raise HTTPException(422, '请填写收藏状态')
+        catalog_id = identity.removeprefix('english:')
+        with connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            journal = dict(resolve_journal(db, 'english:' + catalog_id))
+            revision = int(journal.get('revision') or 0) + 1
+            db.execute('UPDATE submission_journals SET favorite=?,revision=?,updated_at=? WHERE id=?',
+                       (int(body['favorite']), revision, now(), journal['id']))
+            return {'id': catalog_id, 'favorite': body['favorite'], 'revision': revision}
+
     @app.get('/api/submissions/journals/{identity}')
     def journal_detail(identity: str):
         with connection() as db:

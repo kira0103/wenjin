@@ -90,12 +90,12 @@
   .portal-admin .catalog-management .submission-toolbar.secondary { padding-top:12px; padding-bottom:12px; }
   :is(.portal-admin,.portal-workspace) .journal-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:12px 16px; }
   :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar { display:contents; }
-  :is(.portal-admin,.portal-workspace) .journal-controls .submission-search { flex:1 1 220px; max-width:300px; min-width:180px; }
-  :is(.portal-admin,.portal-workspace) .journal-controls .submission-search input { height:32px; min-height:32px; padding:8px 0; }
-  :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar>select { width:120px; min-width:0; height:32px; min-height:32px; padding:8px 12px; font-size:12px; }
-  :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar>.button-secondary { margin-left:0; min-height:32px; padding:8px 12px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-search { flex:1 1 220px; max-width:300px; min-width:180px; min-height:34px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-search input { height:auto; min-height:0; padding:7px 0; line-height:18px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar>select { width:auto; min-width:118px; max-width:100%; height:auto; min-height:34px; padding:6px 12px; font-size:13px; line-height:20px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar>.button-secondary { margin-left:0; min-height:34px; padding:7px 14px; }
   :is(.portal-admin,.portal-workspace) .journal-controls .submission-toolbar.secondary .scope-note { margin:0 0 0 auto; font-size:12px; white-space:nowrap; }
-  :is(.portal-admin,.portal-workspace) .journal-controls .submission-check { font-size:12px; }
+  :is(.portal-admin,.portal-workspace) .journal-controls .submission-check { font-size:13px; line-height:20px; }
   :is(.portal-admin,.portal-workspace) .journal-controls .submission-check input { width:15px; height:15px; }
   :is(.portal-admin,.portal-workspace) .english-journals { gap:12px; }
   .portal-admin .catalog-management .english-journals { padding:12px 16px; }

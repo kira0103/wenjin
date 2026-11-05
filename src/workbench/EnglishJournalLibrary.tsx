@@ -1,6 +1,6 @@
 import JournalSourceDetails from './JournalSourceDetails';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, RotateCcw, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, RotateCcw, Search, Star } from 'lucide-react';
 import { call } from './transport';
 import './english-journals.css';
 
@@ -8,6 +8,7 @@ type SortKey = 'if' | 'cas' | 'jcr' | 'xr' | 'name';
 
 export type EnglishJournal = {
   id: string
+  favorite?: boolean
   name: string
   issn: string
   wos: string
@@ -84,6 +85,9 @@ const errorHint = (detail: string) => {
 };
 
 export default function EnglishJournalLibrary({endpoint='/api/submissions/english-journals'}:{endpoint?:string}) {
+  const favoritesEnabled = !endpoint.startsWith('/api/admin');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [savingId, setSavingId] = useState('');
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [discipline, setDiscipline] = useState('');
@@ -126,6 +130,7 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
     if (xr > 0) params.set('xr', String(xr));
     if (top) params.set('top', 'true');
     if (xrTop) params.set('xrtop', 'true');
+    if (favoritesOnly) params.set('favorite', 'true');
     params.set('sort', sort);
     params.set('page', String(page));
     params.set('page_size', String(pageSize));
@@ -149,7 +154,26 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
         if (active && sequence.current === current) setLoading(false);
       });
     return () => { active = false; };
-  }, [debouncedQuery, discipline, jcr, cas, xr, top, xrTop, sort, pageSize, page, reload]);
+  }, [debouncedQuery, discipline, jcr, cas, xr, top, xrTop, favoritesOnly, sort, pageSize, page, reload]);
+
+  const toggleFavorite = useCallback(async (item: EnglishJournal) => {
+    if (!favoritesEnabled) return;
+    setSavingId(item.id);
+    try {
+      const result = await call<{ favorite: boolean; revision: number }>({
+        path: `${endpoint}/${encodeURIComponent(item.id)}/favorite`,
+        method: 'PATCH',
+        body: { favorite: !item.favorite },
+        silent: true,
+      });
+      setData(previous => previous ? { ...previous, items: previous.items.map(row => row.id === item.id ? { ...row, favorite: result.favorite } : row) } : previous);
+      if (favoritesOnly && !result.favorite) setReload(value => value + 1);
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setSavingId('');
+    }
+  }, [endpoint, favoritesEnabled, favoritesOnly]);
 
   const toggleRow = useCallback((id: string) => {
     setExpanded(previous => (previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]));
@@ -171,12 +195,13 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
     setXr(0);
     setTop(false);
     setXrTop(false);
+    setFavoritesOnly(false);
     setSort('if');
     setPage(1);
     setExpanded([]);
   };
 
-  const hasFilter = !!debouncedQuery || !!discipline || jcr > 0 || cas > 0 || xr > 0 || top || xrTop;
+  const hasFilter = !!debouncedQuery || !!discipline || jcr > 0 || cas > 0 || xr > 0 || top || xrTop || favoritesOnly;
   const rows = data?.items ?? [];
   const shownPage = data?.page ?? page;
   const shownPages = Math.max(data?.pages ?? 0, 1);
@@ -205,6 +230,7 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
       </select></label>
     </div>
     <div className="ej-filter-summary">
+      {favoritesEnabled && <label className="ej-check"><input type="checkbox" aria-label="只看收藏" checked={favoritesOnly} onChange={event => change(() => setFavoritesOnly(event.target.checked))} />只看收藏</label>}
       <label className="ej-check"><input type="checkbox" aria-label="只看中科院 Top" checked={top} onChange={event => change(() => setTop(event.target.checked))} />只看中科院 Top</label>
       <label className="ej-check"><input type="checkbox" aria-label="只看新锐 Top" checked={xrTop} onChange={event => change(() => setXrTop(event.target.checked))} />只看新锐 Top</label>
       <label className="ej-field">排序<select aria-label="排序方式" value={sort} onChange={event => change(() => setSort(event.target.value as SortKey))}>
@@ -237,7 +263,7 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td className="ej-empty" colSpan={8}>{hasFilter ? <><span>暂无匹配期刊</span><button type="button" className="button-secondary" onClick={reset}>重置筛选</button></> : '暂无英文期刊数据'}</td></tr>}
-            {rows.map(item => <JournalRow key={item.id} item={item} expanded={expanded.includes(item.id)} onToggle={toggleRow} />)}
+            {rows.map(item => <JournalRow key={item.id} item={item} expanded={expanded.includes(item.id)} onToggle={toggleRow} favoriteEnabled={favoritesEnabled} onFavorite={toggleFavorite} saving={savingId === item.id} />)}
           </tbody>
         </table>
       </div>}
@@ -255,7 +281,7 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
   </section>;
 }
 
-function JournalRowBase({ item, expanded, onToggle }: { item: EnglishJournal; expanded: boolean; onToggle(id: string): void }) {
+function JournalRowBase({ item, expanded, onToggle, favoriteEnabled, onFavorite, saving }: { item: EnglishJournal; expanded: boolean; onToggle(id: string): void; favoriteEnabled: boolean; onFavorite(item: EnglishJournal): void; saving: boolean }) {
   const detailId = `ej-detail-${item.id}`;
   const subject = text(item.cas_cat) || text(item.xr_cat) || '未收录';
   const casTier = item.cas_tier ?? null;
@@ -303,6 +329,9 @@ function JournalRowBase({ item, expanded, onToggle }: { item: EnglishJournal; ex
         {warnings.map(entry => <span key={entry.label} className={entry.warn ? 'ej-flag is-warn' : 'ej-flag'} title={entry.label}>{entry.label}</span>)}
       </td>
       <td className="ej-actions">
+        {favoriteEnabled && <button type="button" className="icon-btn ej-favorite" aria-label={`${item.favorite ? '取消收藏' : '收藏'}${item.name}`} aria-pressed={!!item.favorite} disabled={saving} onClick={() => onFavorite(item)}>
+          <Star size={18} fill={item.favorite ? 'currentColor' : 'none'} aria-hidden="true" />
+        </button>}
         <button type="button" className="button-quiet" aria-expanded={expanded} aria-controls={detailId} onClick={() => onToggle(item.id)}>
           {expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}详情
         </button>

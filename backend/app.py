@@ -1106,7 +1106,7 @@ batch_runner = collation.register(app, connection, utc_now, lambda messages, mod
 debug_controller = collation_debug.register(app, connection, utc_now, lambda messages, model, budget: request_completion(messages, model, budget), read_model_settings, get_settings, service, batch_runner)
 deletion.register(app,connection,utc_now,service)
 submissions.register(app, connection)
-english_journals.register(app)
+english_journals.register(app, connection)
 research_results.register(app, connection, utc_now, service)
 register_knowledge(app, service, connection, request_completion, read_model_settings)
 try:
