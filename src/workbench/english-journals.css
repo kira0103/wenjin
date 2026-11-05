@@ -51,7 +51,8 @@
 .ej-flag { display: inline-flex; margin: 0 var(--sp-1) var(--sp-1) 0; padding: 1px var(--sp-1); border: 1px solid var(--danger-line); border-radius: var(--r-1); background: var(--danger-bg); color: var(--danger); font-size: var(--fs-xs); line-height: 1.6; }
 .ej-flag.is-warn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
 .ej-dash { color: var(--text-3); }
-.ej-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); text-align: right; }
+.ej-actions { text-align: right; vertical-align: middle; }
+.ej-actions-inner { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); }
 .ej-favorite { color: var(--text-3); }
 .ej-favorite:hover:not(:disabled) { color: var(--warning); }
 .ej-favorite[aria-pressed="true"] { color: var(--warning); }

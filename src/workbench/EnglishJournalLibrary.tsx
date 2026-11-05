@@ -328,14 +328,14 @@ function JournalRowBase({ item, expanded, onToggle, favoriteEnabled, onFavorite,
         {warnings.length === 0 && <span className="ej-dash">—</span>}
         {warnings.map(entry => <span key={entry.label} className={entry.warn ? 'ej-flag is-warn' : 'ej-flag'} title={entry.label}>{entry.label}</span>)}
       </td>
-      <td className="ej-actions">
+      <td className="ej-actions"><div className="ej-actions-inner">
         {favoriteEnabled && <button type="button" className="icon-btn ej-favorite" aria-label={`${item.favorite ? '取消收藏' : '收藏'}${item.name}`} aria-pressed={!!item.favorite} disabled={saving} onClick={() => onFavorite(item)}>
           <Star size={18} fill={item.favorite ? 'currentColor' : 'none'} aria-hidden="true" />
         </button>}
         <button type="button" className="button-quiet" aria-expanded={expanded} aria-controls={detailId} onClick={() => onToggle(item.id)}>
           {expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}详情
         </button>
-      </td>
+        </div></td>
     </tr>
     {expanded && <tr className="ej-detail-row">
       <td colSpan={8}>
