@@ -92,3 +92,7 @@
 .ej-field select{height:38px;min-height:38px;padding:0 12px;font-size:14px;line-height:normal;}
 .ej-search{height:38px;min-height:38px;}
 .ej-search input{padding:0;line-height:normal;}
+
+
+/* 最终对齐全局 select 默认样式（与 C 刊页一致） */
+.ej-field select{width:auto;min-width:132px;max-width:100%;height:auto;min-height:0;padding:8px 10px;font-family:inherit;font-size:14px;line-height:normal;}
