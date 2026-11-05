@@ -1,15 +1,36 @@
 /* 英文期刊库：列表 + 筛选条，颜色与尺寸全部引用语义 token */
-.english-journals { display: grid; gap: var(--sp-3); min-width: 0; }
-.ej-filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; padding: var(--sp-3); border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface); }
-.ej-search { display: inline-flex; align-items: center; gap: var(--sp-2); flex: 1 1 240px; min-width: 200px; max-width: 380px; padding: 0 var(--sp-3); min-height: var(--control); border: 1px solid var(--control-border); border-radius: var(--r-2); background: var(--surface); color: var(--text-3); }
-.ej-search input { border: 0; background: transparent; padding: 7px 0; line-height: 18px; min-height: 0; }
+.english-journals { display: grid; gap: var(--sp-3); min-width: 0; container: english-journals / inline-size; }
+.ej-filter-panel { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); padding-bottom: var(--sp-4); border-bottom: 1px solid var(--line); }
+.english-journals .ej-search { display: flex; align-items: center; gap: var(--sp-2); flex: 1 1 180px; min-width: 160px; max-width: none; height: 38px; min-height: 38px; margin: 0; padding: 0 var(--sp-3); border: 1px solid var(--control-border); border-radius: var(--r-2); background: var(--surface); color: var(--text-2); }
+.english-journals .ej-search input { flex: 1; width: 100%; min-width: 0; height: 100%; min-height: 0; border: 0; background: transparent; padding: 0; font-size: var(--fs-sm); line-height: normal; }
+.ej-search > svg { flex: none; }
 .ej-search input:focus-visible { outline: none; }
 .ej-search:focus-within { border-color: var(--accent); outline: 2px solid var(--focus); outline-offset: 2px; }
-.ej-field { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; font-size: var(--fs-xs); color: var(--text-2); white-space: nowrap; }
-.ej-field select { width: 132px; min-width: 0; max-width: 100%; height: auto; min-height: var(--control); padding: 6px 10px; font-size: var(--fs-sm); line-height: 20px; }
-.ej-check { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); white-space: nowrap; }
-.ej-check input { width: 16px; height: 16px; accent-color: var(--accent); }
-.ej-reset { margin-left: auto; }
+.ej-filter-panel > .ej-select-field { flex: 0 1 200px; }
+.ej-filter-panel > .ej-select-field > .ej-select { flex: 1; min-width: 0; }
+.ej-ranking-disclosure { display: contents; }
+.ej-ranking-disclosure > summary { display: none; }
+.ej-ranking-filters { display: flex; align-items: center; gap: var(--sp-4); }
+.ej-ranking-group { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.ej-ranking-group .ej-select { width: 104px; }
+.ej-ranking-group .ej-select > summary { padding-inline: var(--sp-2); }
+.ej-ranking-group .ej-check { gap: var(--sp-1); font-size: var(--fs-xs); }
+.ej-ranking-disclosure.is-compact { display: block; position: relative; }
+.ej-ranking-disclosure.is-compact > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); min-height: 38px; padding: 0 var(--sp-3); border: 1px solid var(--control-border); border-radius: var(--r-2); background: var(--surface); color: var(--text); font-size: var(--fs-sm); cursor: pointer; list-style: none; }
+.ej-ranking-disclosure > summary::-webkit-details-marker { display: none; }
+.ej-ranking-disclosure.is-compact > .ej-ranking-filters { position: absolute; top: calc(100% + var(--sp-2)); right: 0; z-index: var(--z-dialog); display: grid; gap: var(--sp-3); width: 320px; max-width: calc(100vw - var(--sp-8)); padding: var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); box-shadow: var(--shadow-pop); }
+.ej-ranking-disclosure.is-compact .ej-ranking-group > .ej-select-field { flex: 1; }
+.ej-ranking-disclosure.is-compact .ej-field-label { width: 3em; }
+.ej-ranking-disclosure.is-compact .ej-ranking-group .ej-select { flex: 1; }
+.ej-filter-count { color: var(--accent-on-soft); font-variant-numeric: tabular-nums; }
+.ej-check { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 38px; margin: 0; font-size: var(--fs-sm); color: var(--text-2); white-space: nowrap; cursor: pointer; }
+.ej-check input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.ej-check:has(input:checked) { color: var(--text); }
+.english-journals .ej-reset { min-height: 38px; padding: var(--sp-2) 0; font-size: var(--fs-sm); white-space: nowrap; }
+.ej-result-count { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); }
+.ej-results-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--sp-2) var(--sp-4); }
+.ej-results-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); min-width: 0; margin-left: auto; }
+.ej-results-actions .journal-source-info { color: var(--text-2); }
 .ej-stats { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--sp-2) var(--sp-4); margin: 0; color: var(--text-2); font-size: var(--fs-xs); line-height: 1.8; }
 .ej-stats strong { color: var(--text); font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
 .ej-loading { margin-left: var(--sp-2); color: var(--accent-on-soft); }
@@ -68,48 +89,31 @@
 .ej-pager { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--text-2); font-size: var(--fs-xs); }
 .ej-pager span { font-variant-numeric: tabular-nums; }
 .ej-pager select { min-width: 92px; }
-@media (max-width: 900px) {
-  .ej-search { flex-basis: 100%; max-width: none; }
-  .ej-reset { margin-left: 0; }
-  .ej-table-wrap { max-height: 58vh; }
-}
-
-/* 筛选条：网格排布，窄屏自动换行，不再挤压/裁切 */
-.ej-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
-.ej-search { grid-column: 1 / -1; max-width: none; min-width: 0; }
-.ej-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--sp-2); }
-.ej-field select { width: 100%; min-width: 0; }
-
-
-/* 行内筛选：搜索与筛选项同一行，select 使用原生尺寸避免文字被裁 */
-.ej-filters{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2);}
-.ej-search{grid-column:auto;flex:1 1 220px;max-width:360px;min-width:180px;}
-.ej-field{display:inline-flex;grid-template-columns:none;align-items:center;gap:var(--sp-2);min-width:0;}
-.ej-field select{width:auto;min-width:132px;max-width:100%;height:auto;min-height:0;padding:5px 10px;font-size:var(--fs-sm);line-height:normal;}
-
-
-/* 下拉框：原生高度居中，避免文字上下被裁 */
-.ej-field select{height:38px;min-height:38px;padding:0 12px;font-size:14px;line-height:normal;}
-.ej-search{height:38px;min-height:38px;}
-.ej-search input{padding:0;line-height:normal;}
-
-
-/* 最终对齐全局 select 默认样式（与 C 刊页一致） */
-.ej-field select{width:auto;min-width:132px;max-width:100%;height:auto;min-height:0;padding:8px 10px;font-family:inherit;font-size:14px;line-height:normal;}
-
-/* 自绘下拉（避免原生 select 在部分缩放比例下裁切） */
-.ej-select { position: relative; min-width: 132px; font-size: 14px; color: var(--text); }
-.ej-select > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); min-height: 36px; padding: 0 10px 0 12px; border: 1px solid var(--control-border); border-radius: var(--r-2); background: var(--surface); cursor: pointer; list-style: none; font-size: 14px; line-height: 1.4; }
+/* 下拉框宽度由字段决定，长学科名只截断显示值，菜单保留全文。 */
+.ej-select-field { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.ej-field-label { flex: none; white-space: nowrap; font-size: var(--fs-xs); color: var(--text-2); }
+.ej-select { position: relative; width: 144px; min-width: 0; font-size: var(--fs-sm); color: var(--text); }
+.ej-select > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); height: 38px; padding: 0 var(--sp-3); border: 1px solid var(--control-border); border-radius: var(--r-2); background: var(--surface); cursor: pointer; list-style: none; font-size: var(--fs-sm); line-height: 1.4; }
 .ej-select > summary::-webkit-details-marker { display: none; }
 .ej-select > summary:hover { border-color: var(--accent); }
-.ej-select[open] > summary { border-color: var(--accent); outline: 2px solid var(--focus); outline-offset: 1px; }
+.ej-select[open] > summary { border-color: var(--accent); }
+.ej-select > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ej-select > summary > svg { flex: none; }
 .ej-select-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ej-select > ul { position: absolute; z-index: var(--z-dialog); top: calc(100% + 4px); left: 0; min-width: 100%; max-height: 280px; overflow: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); box-shadow: var(--shadow-pop); }
-.ej-select > ul button { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: var(--r-1); background: transparent; color: var(--text); font-size: 13px; white-space: nowrap; cursor: pointer; }
+.ej-select > ul { position: absolute; z-index: var(--z-dialog); top: calc(100% + var(--sp-1)); left: 0; min-width: 100%; width: max-content; max-width: min(320px, 80vw); max-height: 280px; overflow: auto; margin: 0; padding: var(--sp-1); list-style: none; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); box-shadow: var(--shadow-pop); }
+.ej-select > ul button { display: block; width: 100%; text-align: left; padding: var(--sp-2); border: 0; border-radius: var(--r-1); background: transparent; color: var(--text); font-size: var(--fs-sm); overflow-wrap: anywhere; cursor: pointer; }
 .ej-select > ul button:hover { background: var(--surface-2); }
 .ej-select > ul button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-on-soft); }
+.ej-results-actions .ej-select > ul { left: auto; right: 0; }
 
-
-/* 自绘下拉：保留字段名 */
-.ej-select-field{display:inline-flex;align-items:center;gap:var(--sp-2);min-width:0;}
-.ej-field-label{white-space:nowrap;font-size:var(--fs-xs);color:var(--text-2);}
+@container english-journals (max-width: 720px) {
+  .english-journals .ej-search { flex-basis: 100%; }
+  .ej-filter-panel > .ej-select-field { flex: 1; }
+  .ej-table-wrap { max-height: 58vh; }
+}
+@container english-journals (max-width: 440px) {
+  .ej-filter-panel > .ej-select-field { flex-basis: calc(100% - 100px); }
+  .ej-ranking-disclosure.is-compact > .ej-ranking-filters { left: 0; right: auto; }
+  .ej-results-actions { justify-content: space-between; width: 100%; margin-left: 0; }
+  .ej-select > summary, .ej-check, .english-journals .ej-reset, .ej-ranking-disclosure.is-compact > summary { min-height: 44px; }
+}

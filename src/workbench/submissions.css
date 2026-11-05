@@ -1,5 +1,11 @@
 /* 论文投稿管理：尺寸走 --fs/--sp/--r token，状态色只引用 --status-* */
 .submission-workbench { max-width: 1600px; }
+.submission-workbench > .page-heading { margin-bottom: var(--sp-3); }
+.submission-workbench:not(.catalog-management) .catalog-panel-heading { margin-bottom: var(--sp-4); }
+.submission-workbench:not(.catalog-management) .submission-tabs button { padding-block: var(--sp-2); }
+.journal-pager { margin-top: var(--sp-3); }
+.journal-pager select { width: 144px; height: 38px; min-height: 38px; padding: 0 var(--sp-3); font-size: var(--fs-sm); }
+.catalog-management .journal-pager { margin: var(--sp-4); }
 .submission-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-3); margin: var(--sp-6) 0; }
 .submission-stats > div { border: 1px solid var(--line); border-radius: var(--r-3); padding: var(--sp-4); background: var(--surface); display: grid; gap: var(--sp-2); }
 .submission-stats strong { font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; }

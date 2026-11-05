@@ -27,8 +27,6 @@
 .journal-source-body { position:absolute; top:calc(100% + 4px); right:0; z-index:var(--z-sidebar); width:min(460px,80vw); max-height:320px; overflow:auto; padding:var(--sp-4); border:1px solid var(--line); border-radius:var(--r-3); background:var(--surface); color:var(--text); box-shadow:var(--shadow-pop); line-height:1.6; }
 .journal-source-body p { margin:8px 0 0; overflow-wrap:anywhere; }
 .journal-source-body p:first-child { margin-top:0; }
-.ej-filter-summary { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; }
-.ej-filter-summary .ej-stats { margin:0 0 0 auto; }
 
 @media(min-width:980px) {
   .portal-workspace { grid-template-rows:56px minmax(0,1fr); }
@@ -99,17 +97,6 @@
   :is(.portal-admin,.portal-workspace) .journal-controls .submission-check input { width:15px; height:15px; }
   :is(.portal-admin,.portal-workspace) .english-journals { gap:12px; }
   .portal-admin .catalog-management .english-journals { padding:12px 16px; }
-  :is(.portal-admin,.portal-workspace) .english-journals .ej-filters { display:grid; grid-template-columns:minmax(220px,1.6fr) minmax(160px,1.1fr) minmax(140px,1fr) minmax(150px,1fr) minmax(140px,1fr); gap:8px; padding:0; border:0; background:none; }
-  :is(.portal-admin,.portal-workspace) .english-journals .ej-search { min-width:0; max-width:none; margin:0; }
-  :is(.portal-admin,.portal-workspace) .english-journals .ej-search input { width:100%; min-width:0; height:32px; min-height:32px; padding:8px 0; font-size:12px; }
-  :is(.portal-admin,.portal-workspace) .english-journals .ej-field { min-width:0; flex:none; gap:8px; font-size:12px; }
-  :is(.portal-admin,.portal-workspace) .english-journals .ej-field select { min-width:0; width:100%; height:32px; min-height:32px; padding:8px 8px; font-size:12px; }
-  :is(.portal-admin,.portal-workspace) .ej-filter-summary { gap:8px 12px; }
-  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-field { width:166px; }
-  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-check { font-size:12px; gap:8px; }
-  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-check input { width:15px; height:15px; }
-  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-reset { margin:0; min-height:32px; padding:8px 12px; font-size:12px; }
-  :is(.portal-admin,.portal-workspace) .ej-filter-summary .ej-stats { margin-left:auto; font-size:12px; }
   .portal-workspace .journal-controls { padding:0 0 12px; }
   .portal-workspace .journal-controls .submission-search { flex-basis:200px; max-width:260px; }
   .portal-workspace .journal-controls .submission-toolbar>select { width:110px; }
@@ -164,8 +151,4 @@
 
 @container workspace (max-width:640px) {
   .portal-workspace .setup-grid { grid-template-columns:1fr; }
-}
-@container workspace (max-width:900px) {
-  .portal-workspace .english-journals .ej-filters { grid-template-columns:repeat(3,minmax(0,1fr)); }
-  .portal-workspace .english-journals .ej-search { grid-column:span 2; }
 }

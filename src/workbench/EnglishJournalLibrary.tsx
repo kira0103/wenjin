@@ -105,6 +105,26 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
   const [reload, setReload] = useState(0);
   const [expanded, setExpanded] = useState<string[]>([]);
   const sequence = useRef(0);
+  const sectionRef = useRef<HTMLElement>(null);
+  const rankingRef = useRef<HTMLDetailsElement>(null);
+  const [compactFilters, setCompactFilters] = useState(false);
+  const [rankingOpen, setRankingOpen] = useState(false);
+
+  useEffect(() => {
+    if (!sectionRef.current) return;
+    const observer = new ResizeObserver(([entry]) => setCompactFilters(entry.contentRect.width < 1120));
+    observer.observe(sectionRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!compactFilters || !rankingOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (rankingRef.current && !rankingRef.current.contains(event.target as Node)) setRankingOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [compactFilters, rankingOpen]);
 
   // 搜索输入防抖 300ms；与已生效关键字相同时不重置计时器（首次挂载不延迟）。
   useEffect(() => {
@@ -207,24 +227,41 @@ export default function EnglishJournalLibrary({endpoint='/api/submissions/englis
   const shownPages = Math.max(data?.pages ?? 0, 1);
   const disciplines = data?.meta.disciplines ?? [];
 
-  return <section className="english-journals" aria-label="英文期刊库">
-    <div className="ej-filters" role="group" aria-label="英文期刊筛选">
+  return <section ref={sectionRef} className="english-journals" aria-label="英文期刊库">
+    <div className="ej-filter-panel" role="group" aria-label="英文期刊筛选">
       <label className="ej-search"><Search size={16} aria-hidden="true" />
         <input aria-label="搜索英文期刊刊名或 ISSN" placeholder="搜索刊名或 ISSN" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} />
       </label>
       <EjSelect label="学科" value={discipline} options={[{ value: '', label: '全部学科' }, ...disciplines.map(entry => ({ value: entry.name, label: `${entry.name}（${formatCount(entry.count)}）` }))]} onChange={value => change(() => setDiscipline(value))} />
-      <EjSelect label="JCR" value={String(jcr)} options={[{ value: '0', label: '全部' }, ...JCR_OPTIONS.map(option => ({ value: String(option.value), label: option.label }))]} onChange={value => change(() => setJcr(Number(value)))} />
-      <EjSelect label="中科院" value={String(cas)} options={[{ value: '0', label: '全部' }, ...TIER_OPTIONS.map(option => ({ value: String(option.value), label: option.label }))]} onChange={value => change(() => setCas(Number(value)))} />
-      <EjSelect label="新锐" value={String(xr)} options={[{ value: '0', label: '全部' }, ...TIER_OPTIONS.map(option => ({ value: String(option.value), label: option.label }))]} onChange={value => change(() => setXr(Number(value)))} />
-    </div>
-    <div className="ej-filter-summary">
+      <details ref={rankingRef} className={`ej-ranking-disclosure${compactFilters ? ' is-compact' : ''}`} open={!compactFilters || rankingOpen} onToggle={event => { if (compactFilters) setRankingOpen(event.currentTarget.open); }} onKeyDown={event => {
+        if (event.key === 'Escape' && compactFilters) { setRankingOpen(false); rankingRef.current?.querySelector('summary')?.focus(); event.preventDefault(); }
+      }}>
+      <summary>分区筛选{(jcr > 0 || cas > 0 || xr > 0 || top || xrTop) && <span className="ej-filter-count">{Number(jcr > 0) + Number(cas > 0) + Number(xr > 0) + Number(top) + Number(xrTop)}</span>}<ChevronDown size={14} aria-hidden="true"/></summary>
+      <div className="ej-ranking-filters">
+        <div className="ej-ranking-group" role="group" aria-label="JCR 分区筛选">
+          <EjSelect label="JCR" value={String(jcr)} options={[{ value: '0', label: '全部分区' }, ...JCR_OPTIONS.map(option => ({ value: String(option.value), label: option.label }))]} onChange={value => change(() => setJcr(Number(value)))} />
+        </div>
+        <div className="ej-ranking-group" role="group" aria-label="中科院分区筛选">
+          <EjSelect label="中科院" value={String(cas)} options={[{ value: '0', label: '全部分区' }, ...TIER_OPTIONS.map(option => ({ value: String(option.value), label: option.label }))]} onChange={value => change(() => setCas(Number(value)))} />
+          <label className="ej-check"><input type="checkbox" aria-label="只看中科院 Top" checked={top} onChange={event => change(() => setTop(event.target.checked))} />仅 Top</label>
+        </div>
+        <div className="ej-ranking-group" role="group" aria-label="新锐分区筛选">
+          <EjSelect label="新锐" value={String(xr)} options={[{ value: '0', label: '全部分区' }, ...TIER_OPTIONS.map(option => ({ value: String(option.value), label: option.label }))]} onChange={value => change(() => setXr(Number(value)))} />
+          <label className="ej-check"><input type="checkbox" aria-label="只看新锐 Top" checked={xrTop} onChange={event => change(() => setXrTop(event.target.checked))} />仅 Top</label>
+        </div>
+      </div>
+      </details>
       {favoritesEnabled && <label className="ej-check"><input type="checkbox" aria-label="只看收藏" checked={favoritesOnly} onChange={event => change(() => setFavoritesOnly(event.target.checked))} />只看收藏</label>}
-      <label className="ej-check"><input type="checkbox" aria-label="只看中科院 Top" checked={top} onChange={event => change(() => setTop(event.target.checked))} />只看中科院 Top</label>
-      <label className="ej-check"><input type="checkbox" aria-label="只看新锐 Top" checked={xrTop} onChange={event => change(() => setXrTop(event.target.checked))} />只看新锐 Top</label>
-      <EjSelect label="排序" value={sort} options={SORT_OPTIONS.map(option => ({ value: option.value, label: option.label }))} onChange={value => change(() => setSort(value as SortKey))} />
-      <button type="button" className="button-secondary ej-reset" aria-label="重置筛选" onClick={reset}><RotateCcw size={16} aria-hidden="true"/>重置</button>
-      <p className="ej-stats" role="status" aria-live="polite"><span>{hasFilter?'筛选后':'共'} <strong>{data?formatCount(data.total):'—'}</strong> 种{loading&&<span className="ej-loading">正在更新…</span>}</span></p>
+    </div>
+    <div className="ej-results-toolbar">
+      <div className="ej-result-count">
+      <p className="ej-stats" role="status" aria-live="polite"><span>{hasFilter?'找到':'共'} <strong>{data?formatCount(data.total):'—'}</strong> 种期刊{loading&&<span className="ej-loading">正在更新…</span>}</span></p>
+      {(hasFilter || !!query.trim() || sort !== 'if') && <button type="button" className="button-quiet ej-reset" aria-label="重置筛选" onClick={reset}><RotateCcw size={14} aria-hidden="true"/>清空筛选</button>}
+      </div>
+      <div className="ej-results-actions">
       {data&&<JournalSourceDetails><p>{data.meta.label} · 共 {formatCount(data.meta.count)} 种 · 生成于 {data.meta.generated_at}</p>{Object.entries(data.meta.sources).map(([key,value])=><p key={key}>{value}</p>)}{data.meta.notes.map((note,index)=><p key={index}>{note}</p>)}<p>分区与 IF 仅作投稿参考，投稿前请核对期刊当前收录状态与要求</p></JournalSourceDetails>}
+        <EjSelect label="排序" value={sort} options={SORT_OPTIONS.map(option => ({ value: option.value, label: option.label }))} onChange={value => change(() => setSort(value as SortKey))} />
+      </div>
     </div>
 
     {error && <div role="alert" className="scope-warning ej-error">
