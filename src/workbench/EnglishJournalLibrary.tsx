@@ -352,12 +352,12 @@ const JournalRow = memo(JournalRowBase);
 function EjSelect({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange(value: string): void }) {
   const ref = useRef<HTMLDetailsElement>(null);
   const current = options.find(option => option.value === value)?.label ?? options[0]?.label ?? '';
-  return <details className="ej-select" ref={ref}>
+  return <span className="ej-select-field"><span className="ej-field-label">{label}</span><details className="ej-select" ref={ref}>
     <summary aria-label={label}><span className="ej-select-value">{current}</span><ChevronDown size={16} aria-hidden="true" /></summary>
     <ul role="listbox" aria-label={label}>{options.map(option => (
       <li key={option.value}>
         <button type="button" role="option" aria-selected={option.value === value} onClick={() => { onChange(option.value); if (ref.current) ref.current.open = false; }}>{option.label}</button>
       </li>
     ))}</ul>
-  </details>;
+  </details></span>;
 }

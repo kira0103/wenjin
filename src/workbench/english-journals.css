@@ -108,3 +108,8 @@
 .ej-select > ul button { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: var(--r-1); background: transparent; color: var(--text); font-size: 13px; white-space: nowrap; cursor: pointer; }
 .ej-select > ul button:hover { background: var(--surface-2); }
 .ej-select > ul button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-on-soft); }
+
+
+/* 自绘下拉：保留字段名 */
+.ej-select-field{display:inline-flex;align-items:center;gap:var(--sp-2);min-width:0;}
+.ej-field-label{white-space:nowrap;font-size:var(--fs-xs);color:var(--text-2);}
