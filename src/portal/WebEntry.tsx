@@ -23,7 +23,7 @@ export default function WebEntry() {
 }
 
 function PortalRoot({initial}:{initial:PortalSession}) {
-  const [user,setUser]=useState<PortalUser|null>(initial.user),[connected,setConnected]=useState(initial.authenticated),[notice,setNotice]=useState('');
+  const [user,setUser]=useState<PortalUser|null>(initial.user),[connected,setConnected]=useState(initial.authenticated),[notice,setNotice]=useState(''),[gateOk,setGateOk]=useState(()=>{try{return sessionStorage.getItem('wenjin:admin-workspace')==='1';}catch{return false;}});
   if(initial.authenticated&&initial.user&&!['/app','/admin'].includes(location.pathname.replace(/\/$/,'')))history.replaceState(null,'','/app/');
   const adminPage=location.pathname.replace(/\/$/,'')==='/admin';
   useEffect(()=>{const expired=()=>{setConnected(false);setNotice('登录已过期或账号状态已更新，请重新登录');};window.addEventListener('wenjin:unauthorized',expired);return()=>window.removeEventListener('wenjin:unauthorized',expired);},[]);
@@ -31,7 +31,8 @@ function PortalRoot({initial}:{initial:PortalSession}) {
   async function logout() {
     try { await call({path:'/api/session',method:'DELETE',silent:true}); } catch { /* A revoked or changed account still leaves this page signed out. */ }
     if(user)clearStorageAccount(user.id);
-    setUser(null);setConnected(false);setStorageAccount('');setNotice('已安全退出，请重新登录');
+    try{sessionStorage.removeItem('wenjin:admin-workspace');}catch{/* storage may be unavailable */}
+    setGateOk(false);setUser(null);setConnected(false);setStorageAccount('');setNotice('已安全退出，请重新登录');
   }
   function loggedIn(next:PortalUser) {
     if(user&&user.id!==next.id)clearStorageAccount(user.id);
@@ -44,6 +45,7 @@ function PortalRoot({initial}:{initial:PortalSession}) {
     if(user.password_change_required)content=<div className="portal-security-page"><Brand/><AccountSettings key={user.id} user={user} required onLogout={logout}/></div>;
     else if(adminPage&&user.role!=='admin')content=<div className="portal-access-denied"><ShieldCheck size={40}/><h1>这里是管理员工作区</h1><p>当前账号 @{user.username} 是研究用户，没有管理权限；需要管理后台请联系管理员</p><a className="portal-primary" href="/app/">进入研究工作区</a><button className="portal-link-button" onClick={()=>void logout()}>返回登录</button></div>;
     else if(adminPage)content=<Suspense fallback={loading}><AdminConsole key={user.id} user={user} onLogout={logout}/></Suspense>;
+    else if(user.role==='admin'&&!gateOk)content=<div className="portal-access-denied"><ShieldCheck size={40}/><h1>研究工作区是独立空间</h1><p>当前账号 @{user.username} 是管理员。进入研究工作区将使用同一账号的个人工作区，文献、项目与研究成果只属于你，与后台管理数据分开保存。</p><div style={{display:'flex',gap:'var(--sp-3)',flexWrap:'wrap',justifyContent:'center'}}><button className="portal-primary" onClick={()=>{try{sessionStorage.setItem('wenjin:admin-workspace','1');}catch{/* storage may be unavailable */}setGateOk(true);}}>以管理员账号进入</button><button className="portal-link-button" onClick={()=>void logout()}>退出并切换研究账号</button></div></div>;
     else content=<Suspense fallback={loading}><Workbench key={user.id} portalUser={user} onLogout={logout}/></Suspense>;
   }
   return <PortalVisibility.Provider value={connected}>{connected&&content}{!connected&&<Login onLogin={loggedIn} notice={notice} administrator={adminPage}/>}</PortalVisibility.Provider>;
