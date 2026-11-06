@@ -191,6 +191,9 @@ def process_import(root,payload,check,progress):
                       kind=position,e=payload['edition_id'],a=file['id'])
     check();progress('publish',80)
     with r.database.transaction(root) as connection:
+        # 大篇幅录文的写入可能远超普通请求的 5 秒语句时限（例如整本类书 Markdown）；
+        # 发布是单个原子事务，失败会让整份文献停在“未发布”状态，这里放宽语句时限。
+        r.execute(connection, "SET LOCAL statement_timeout='10min'")
         r.one(connection,'SELECT id FROM kb_editions WHERE id=:id AND NOT deleted FOR UPDATE',id=payload['edition_id'])
         job_gate(connection,payload)
         result=publish(connection,payload['edition_id'],pages,expected_revision=edition['active_revision'],chunk_config=processing['chunking'])

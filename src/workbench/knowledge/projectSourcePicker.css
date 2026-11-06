@@ -1,0 +1,35 @@
+/* 项目内选材抽屉：选择底本/参校本/研究参考。 */
+.psp-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.psp-toolbar select { min-height: 34px; max-width: 220px; }
+.psp-scope { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface-2); }
+.psp-scope button { border: 0; background: transparent; color: var(--muted); padding: 5px 12px; border-radius: calc(var(--r-2) - 2px); cursor: pointer; font: inherit; }
+.psp-scope button.is-active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.psp-scope-label { display: inline-flex; align-items: center; min-height: 34px; padding: 0 4px; color: var(--muted); font-size: 12px; }
+.psp-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--control-border, var(--line)); border-radius: var(--r-2); background: var(--surface); min-height: 36px; margin-bottom: 10px; }
+.psp-search input { flex: 1; width: auto; min-width: 0; border: 0; background: transparent; outline: none; font: inherit; color: var(--ink); }
+.psp-total { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.psp-list { display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-2); padding: 4px; }
+.psp-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: calc(var(--r-2) - 2px); cursor: pointer; }
+.psp-row:hover { background: var(--surface-2); }
+.psp-row.is-selected { background: var(--accent-soft); color: var(--accent-on-soft); }
+.psp-row.is-disabled { opacity: .55; cursor: not-allowed; }
+.psp-row input[type=checkbox] { width: 16px; height: 16px; min-width: 16px; flex: none; margin: 0; padding: 0; accent-color: var(--accent); }
+.psp-row-main { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
+.psp-row-main strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.psp-row-main small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.psp-badge { flex: none; font-size: 11px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: var(--surface); }
+.psp-badge.is-warn { border-color: var(--warning, #b7791f); color: var(--warning, #b7791f); }
+.psp-badge.is-quiet { border-color: transparent; background: var(--surface-2); }
+.psp-empty { padding: 24px 12px; text-align: center; color: var(--muted); }
+.psp-loading { display: flex; align-items: center; gap: 8px; justify-content: center; color: var(--muted); padding: 14px; }
+.psp-more { margin-top: 10px; }
+.psp-footer { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.psp-roles { display: flex; gap: 6px; flex-wrap: wrap; }
+.psp-role { flex: 1 1 180px; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); cursor: pointer; font: inherit; color: var(--ink); }
+.psp-role small { color: var(--muted); font-size: 11px; }
+.psp-role.is-active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.psp-role:disabled { opacity: .6; cursor: not-allowed; }
+.psp-hint { margin: 0; color: var(--muted); font-size: 12px; }
+.psp-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.psp-count { color: var(--muted); font-size: 12px; }
+.psp-actions .action-row { margin: 0; }

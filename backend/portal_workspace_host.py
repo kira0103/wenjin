@@ -15,6 +15,10 @@ import httpx
 
 from .portal_database import provision, save_private_json
 from .knowledge.managed import DirectoryLease
+try:
+    from .portal_fleet import normalize_model_pool
+except ImportError:  # pragma: no cover - legacy direct-script entry point
+    from portal_fleet import normalize_model_pool
 
 
 def free_port():
@@ -23,9 +27,48 @@ def free_port():
         return probe.getsockname()[1]
 
 
+def _bounded(value, minimum, maximum):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if minimum <= value <= maximum else None
+
+
 def model_settings(application, configuration):
-    value = json.loads(Path(configuration).read_text(encoding='utf-8')) if Path(configuration).exists() else {'base_url':'','model':'','provider_name':'管理员配置的模型'}
-    application.save_settings(application.SettingsUpdate(**value))
+    """Sync the portal's model pool into this workspace.
+
+    The default model keeps its pre-v2 app_settings representation (`base_url`,
+    `model`, ...). The selectable pool is stored separately with each model's own
+    service address so a project can switch provider; /api/bootstrap strips the
+    address when returning the pool to the browser.
+    """
+    path = Path(configuration)
+    try:
+        value = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    except (OSError, ValueError):
+        value = {}
+    pool = normalize_model_pool(value)
+    default = next((item for item in pool['models'] if item['id'] == pool['default_model_id']), None)
+    settings = {'base_url': '', 'model': '', 'provider_name': '管理员配置的模型',
+                'context_tokens': None, 'max_output_tokens': None,
+                'price_input_per_million': None, 'price_output_per_million': None,
+                'price_cached_per_million': None, 'currency': '', 'price_date': ''}
+    if default and default['base_url'] and default['model']:
+        # SettingsUpdate has stricter bounds than the pool editor; an out-of-range
+        # value is dropped instead of crashing the workspace host on startup.
+        settings.update({
+            'base_url': str(default['base_url'])[:500],
+            'model': str(default['model'])[:200],
+            'provider_name': str(default['provider_name'] or '兼容接口')[:100],
+            'context_tokens': _bounded(default['context_tokens'], 4096, 2000000),
+            'max_output_tokens': _bounded(default['max_output_tokens'], 256, 262144),
+            'price_input_per_million': _bounded(default['price_input_per_million'], 0, 1000000),
+            'price_output_per_million': _bounded(default['price_output_per_million'], 0, 1000000),
+            'price_cached_per_million': _bounded(default['price_cached_per_million'], 0, 1000000),
+            'currency': str(default['currency'] or '')[:12],
+            'price_date': str(default['price_date'] or '')[:10],
+        })
+    application.save_settings(application.SettingsUpdate(**settings))
+    application.save_model_pool(pool)
 
 
 def metrics(application):

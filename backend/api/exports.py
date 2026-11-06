@@ -1,6 +1,7 @@
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 try:
@@ -18,7 +19,31 @@ class QuotesExport(BaseModel):
     anchor_ids: list[UUID] = Field(min_length=1, max_length=1000)
 
 
+class UnitBatchExport(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    unit_ids: list[str] = Field(min_length=1, max_length=200)
+
+
 def register(app, state, connection):
+    @app.post('/api/exports/units/docx')
+    def export_units_docx(payload: UnitBatchExport):
+        try:
+            with connection() as db:
+                value = exports.manuscripts_docx(db, payload.unit_ids)
+        except LookupError:
+            raise HTTPException(404, '找不到工作稿') from None
+        warnings = value.get('warnings') or {}
+        pua = int(warnings.get('pua') or 0)
+        replacement = int(warnings.get('replacement') or 0)
+        headers = {
+            'Content-Disposition': "attachment; filename=\"manuscripts.zip\"; filename*=UTF-8''" + quote(value['filename']),
+            'X-Wenjin-Export-Pua': str(pua),
+            'X-Wenjin-Export-Replacement': str(replacement),
+            'X-Wenjin-Export-Warnings': str(pua + replacement),
+            'Cache-Control': 'no-store',
+        }
+        return Response(content=value['data'], media_type='application/zip', headers=headers)
+
     @app.get('/api/artifacts/{identifier}/export')
     def export_artifact(identifier: str):
         try:
@@ -36,6 +61,30 @@ def register(app, state, connection):
             raise HTTPException(409, str(error)) from None
         except LookupError:
             raise HTTPException(404, '找不到工作稿') from None
+
+    @app.post('/api/units/{identifier}/export/docx')
+    def export_manuscript_docx(identifier: str, payload: UnitSave):
+        try:
+            with connection() as db:
+                value = exports.manuscript_docx(db, identifier, payload)
+        except exports.ExportConflict as error:
+            raise HTTPException(409, str(error)) from None
+        except LookupError:
+            raise HTTPException(404, '找不到工作稿') from None
+        warnings = value.get('warnings') or {}
+        pua = int(warnings.get('pua') or 0)
+        replacement = int(warnings.get('replacement') or 0)
+        headers = {
+            'Content-Disposition': "attachment; filename=\"manuscript.docx\"; filename*=UTF-8''" + quote(value['filename']),
+            'X-Wenjin-Export-Pua': str(pua),
+            'X-Wenjin-Export-Replacement': str(replacement),
+            'X-Wenjin-Export-Warnings': str(pua + replacement),
+            'Cache-Control': 'no-store',
+        }
+        return Response(content=value['data'],
+                        media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        headers=headers)
+
 
     @app.post('/api/knowledge/quotes/export')
     def export_quotes(payload: QuotesExport):

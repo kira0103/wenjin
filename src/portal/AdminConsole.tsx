@@ -2,14 +2,15 @@ import { isAppDialogOpen, confirmDialog } from '../workbench/dialogQueue';
 import PageHeading, { PageHeadingProvider } from '../workbench/PageHeading';
 import SubmissionWorkbench from '../workbench/SubmissionWorkbench';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, BookOpen, Check, ChevronRight, Copy, Cpu, Eye, EyeOff, KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, Moon, Plus, RefreshCw, ScrollText, Search, Server, Settings2, ShieldCheck, SlidersHorizontal, Sun, Users, X } from 'lucide-react';
+import { ArrowUpRight, BookOpen, ChartColumn, Check, ChevronRight, Copy, Cpu, Eye, EyeOff, KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, Moon, Plus, RefreshCw, ScrollText, Search, Server, Settings2, ShieldCheck, SlidersHorizontal, Sun, Users, X } from 'lucide-react';
 import { call } from '../workbench/transport';
 import SharedLibrary from './SharedLibrary';
 import AccountSettings from './AccountSettings';
+import UsagePanel from './UsagePanel';
 import { applyTheme, readTheme, saveTheme } from '../workbench/appearance';
 import type { ManagedUser, PortalUser } from './types';
 
-type Section='retrieval'|'assistants'|'journals'|'library'|'overview'|'users'|'workspaces'|'models'|'audit'|'account';
+type Section='retrieval'|'assistants'|'journals'|'library'|'overview'|'users'|'workspaces'|'usage'|'models'|'audit'|'account';
 type Overview={users:number;enabled_users:number;administrators:number;running_workspaces:number;active_tasks:number;failed_workspaces:number};
 type Audit={id:number;actor:string|null;target:string|null;action:string;target_id:string|null;details:string;created_at:number};
 type Dialog={kind:'create'}|{kind:'edit'|'password';user:ManagedUser};
@@ -52,7 +53,7 @@ export default function AdminConsole({user,onLogout}:{user:PortalUser;onLogout()
   useEffect(()=>{if(!issued)return;const close=(event:KeyboardEvent)=>{if(event.key==='Escape')setIssued(null);};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[issued]);
   const filtered=users.filter(item=>`${item.username} ${item.display_name}`.toLowerCase().includes(query.trim().toLowerCase()));
   const sortedUsers=[...users].sort((a,b)=>(workspaceOrder[a.workspace.state]??9)-(workspaceOrder[b.workspace.state]??9));
-  const navigation:[Section,string,typeof Users][]=[['overview','运行概览',LayoutDashboard],['library','系统文献库',LibraryBig],['journals','期刊库管理',BookOpen],['retrieval','检索配置',SlidersHorizontal],['assistants','助手与 Skill',Settings2],['users','用户管理',Users],['workspaces','工作区运行',Server],['models','模型服务',Cpu],['audit','操作记录',ScrollText],['account','账号与安全',ShieldCheck]];
+  const navigation:[Section,string,typeof Users][]=[['overview','运行概览',LayoutDashboard],['library','系统文献库',LibraryBig],['journals','期刊库管理',BookOpen],['retrieval','检索配置',SlidersHorizontal],['assistants','助手与 Skill',Settings2],['users','用户管理',Users],['workspaces','工作区运行',Server],['usage','用量台账',ChartColumn],['models','模型服务',Cpu],['audit','操作记录',ScrollText],['account','账号与安全',ShieldCheck]];
   const libraryLeave=useRef<(()=>Promise<boolean>)|null>(null);
   const registerLibraryLeave=useCallback((callback:(()=>Promise<boolean>)|null)=>{libraryLeave.current=callback;},[]);
   async function navigate(value:Section){if((['library','journals','retrieval','assistants'].includes(section))&&libraryLeave.current&&!await libraryLeave.current())return false;setSection(value);setMobileNav(false);setQuery('');setNotice('');setError('');return true;}
@@ -138,6 +139,7 @@ export default function AdminConsole({user,onLogout}:{user:PortalUser;onLogout()
             :section==='journals'?'查看中英文期刊目录，维护公共期刊资料'
             :section==='users'?'为研究者建立账号，管理访问权限与登录安全'
             :section==='workspaces'?'查看独立工作区与后台任务的运行状态'
+            :section==='usage'?'按账号与项目统计 AI token 用量（CNY 估算，非账单）'
             :section==='models'?'统一配置研究模型，用户工作区会自动同步'
             :section==='audit'?'查看账号与服务配置的管理操作'
             :section==='account'?'管理当前管理员的账号安全'
@@ -173,6 +175,7 @@ export default function AdminConsole({user,onLogout}:{user:PortalUser;onLogout()
             {!users.length&&<Empty text={loading?'正在读取账号…':error?'读取失败，请刷新':'还没有研究用户，可先建立账号'}/>}
             <p className="portal-table-note">账号停用会阻止后续访问，资料继续保留；停止工作区需先停用账号</p>
           </section>}
+          {section==='usage'&&<UsagePanel users={users}/>}
           {section==='models'&&<ModelPanel/>}
           {section==='audit'&&<section className="portal-card">
             <div className="portal-table-toolbar"><div><h2>操作记录</h2><p>最近 100 项管理操作，可按操作者或对象筛选</p></div><label className="portal-search"><Search size={16}/><input aria-label="筛选操作者或对象" placeholder="筛选操作者或对象" value={auditQuery} onChange={event=>setAuditQuery(event.target.value)}/></label><select aria-label="按动作筛选" value={auditAction} onChange={event=>setAuditAction(event.target.value)}><option value="">全部动作</option>{auditActions.map(action=><option key={action} value={action}>{actionNames[action]||action}</option>)}</select></div>
@@ -231,33 +234,141 @@ function auditDetail(event:Audit){
   }catch{return event.details||'—';}
 }
 
-type Models={base_url:string;model:string;provider_name:string;context_tokens:number|null;max_output_tokens:number|null;has_api_key:boolean;api_key_managed:boolean;database_mode:string};
+type ModelDraft={id:string;name:string;provider_name:string;base_url:string;model:string;context_tokens:string;max_output_tokens:string;price_input:string;price_output:string;price_cached:string;currency:string;price_date:string;enabled:boolean;selectable:boolean};
+type ModelInput={id?:unknown;name?:unknown;provider_name?:unknown;base_url?:unknown;model?:unknown;context_tokens?:unknown;max_output_tokens?:unknown;price_input_per_million?:unknown;price_output_per_million?:unknown;price_cached_per_million?:unknown;currency?:unknown;price_date?:unknown;enabled?:unknown;selectable?:unknown};
+type ModelSettings={version?:number;default_model_id?:string;models?:ModelInput[]|null;base_url?:string;model?:string;provider_name?:string;context_tokens?:number|null;max_output_tokens?:number|null;has_api_key?:boolean;api_key_managed?:boolean;database_mode?:string};
+type PoolState={models:ModelDraft[];defaultModelId:string;hasApiKey:boolean|null};
+function modelId(){return 'm_'+Array.from(crypto.getRandomValues(new Uint8Array(4)),byte=>byte.toString(16).padStart(2,'0')).join('');}
+function today(){const now=new Date();return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;}
+/** 数字字段在表单里保留原始文本，保存时再转换，避免小数点在输入过程中被吃掉。 */
+function numberOrNull(value:string){const text=value.trim();if(!text)return null;const parsed=Number(text);return Number.isFinite(parsed)?parsed:null;}
+function modelLabel(item:ModelDraft){return item.name.trim()||item.model.trim()||'未命名模型';}
+function toModelPayload(item:ModelDraft){
+  return {id:item.id,name:item.name.trim(),provider_name:item.provider_name.trim(),base_url:item.base_url.trim().replace(/\/+$/,''),model:item.model.trim(),context_tokens:numberOrNull(item.context_tokens),max_output_tokens:numberOrNull(item.max_output_tokens),price_input_per_million:numberOrNull(item.price_input),price_output_per_million:numberOrNull(item.price_output),price_cached_per_million:numberOrNull(item.price_cached),currency:item.currency.trim()||'CNY',price_date:item.price_date.trim(),enabled:item.enabled,selectable:item.selectable};
+}
+/** GET 兼容旧格式：没有 models 但顶层仍有 base_url/model 时，展示为一条模型。 */
+function normalizePool(value:ModelSettings):PoolState{
+  const text=(input:unknown)=>typeof input==='string'?input:'';
+  const numberText=(input:unknown)=>typeof input==='number'&&Number.isFinite(input)?String(input):text(input).trim();
+  const legacy:ModelInput[]=value.base_url||value.model?[{name:value.provider_name||value.model||'默认模型',provider_name:value.provider_name,base_url:value.base_url,model:value.model,context_tokens:value.context_tokens,max_output_tokens:value.max_output_tokens,enabled:true,selectable:true}]:[];
+  const raw:ModelInput[]=Array.isArray(value.models)?value.models:[];
+  const source=raw.length?raw:legacy;
+  const models=source.map<ModelDraft>(item=>({
+    id:text(item.id).trim()||modelId(),
+    name:text(item.name),provider_name:text(item.provider_name),base_url:text(item.base_url),model:text(item.model),
+    context_tokens:numberText(item.context_tokens),max_output_tokens:numberText(item.max_output_tokens),
+    price_input:numberText(item.price_input_per_million),price_output:numberText(item.price_output_per_million),price_cached:numberText(item.price_cached_per_million),
+    currency:text(item.currency)||'CNY',price_date:text(item.price_date),enabled:item.enabled!==false,selectable:item.selectable!==false}));
+  const seen=new Set<string>();
+  for(const item of models){while(seen.has(item.id))item.id=modelId();seen.add(item.id);}
+  const fallback=models.find(item=>item.enabled)?.id??models[0]?.id??'';
+  const candidate=text(value.default_model_id);
+  return {models,defaultModelId:models.some(item=>item.id===candidate)?candidate:fallback,hasApiKey:typeof value.has_api_key==='boolean'?value.has_api_key:null};
+}
+function ModelEntry({item,isDefault,busy,onChange,onMakeDefault,onRemove}:{item:ModelDraft;isDefault:boolean;busy:boolean;onChange(patch:Partial<ModelDraft>):void;onMakeDefault():void;onRemove():void}){
+  const label=modelLabel(item);
+  return <article className="portal-model-entry">
+    <div className="portal-model-entry-head">
+      <div className="portal-model-entry-title"><h3>{label}</h3>{isDefault&&<span className="portal-status ready">默认模型</span>}{!item.enabled&&<span className="portal-status">已停用</span>}{!item.selectable&&<span className="portal-status">不发布</span>}</div>
+      <div className="portal-row-actions"><button type="button" disabled={busy||isDefault} onClick={onMakeDefault}>{isDefault?'当前默认':'设为默认'}</button><button type="button" className="danger" disabled={busy} aria-label={`删除模型 ${label}`} onClick={onRemove}>删除</button></div>
+    </div>
+    <div className="portal-form-grid portal-model-grid">
+      <label>名称<input autoComplete="off" maxLength={100} placeholder="如 DeepSeek Chat" value={item.name} disabled={busy} onChange={event=>onChange({name:event.target.value})}/></label>
+      <label>服务商<input autoComplete="off" maxLength={100} placeholder="如 DeepSeek" value={item.provider_name} disabled={busy} onChange={event=>onChange({provider_name:event.target.value})}/></label>
+      <label>模型名<input autoComplete="off" maxLength={200} placeholder="如 deepseek-chat" value={item.model} disabled={busy} onChange={event=>onChange({model:event.target.value})}/></label>
+      <label className="is-wide">服务地址（OpenAI 兼容）<input autoComplete="off" maxLength={500} placeholder="如 https://api.deepseek.com/v1" value={item.base_url} disabled={busy} onChange={event=>onChange({base_url:event.target.value})}/><small>需以 http:// 或 https:// 开头，通常以 /v1 结尾</small></label>
+      <label>上下文 token<input inputMode="numeric" autoComplete="off" placeholder="如 128000" value={item.context_tokens} disabled={busy} onChange={event=>onChange({context_tokens:event.target.value})}/></label>
+      <label>最大输出 token<input inputMode="numeric" autoComplete="off" placeholder="如 8192" value={item.max_output_tokens} disabled={busy} onChange={event=>onChange({max_output_tokens:event.target.value})}/></label>
+      <label>输入单价 / 百万 token<input inputMode="decimal" autoComplete="off" placeholder="如 2" value={item.price_input} disabled={busy} onChange={event=>onChange({price_input:event.target.value})}/></label>
+      <label>输出单价 / 百万 token<input inputMode="decimal" autoComplete="off" placeholder="如 8" value={item.price_output} disabled={busy} onChange={event=>onChange({price_output:event.target.value})}/></label>
+      <label>币种<input autoComplete="off" maxLength={12} placeholder="如 CNY" value={item.currency} disabled={busy} onChange={event=>onChange({currency:event.target.value})}/></label>
+      <label>价格日期<input type="date" value={item.price_date} disabled={busy} onChange={event=>onChange({price_date:event.target.value})}/></label>
+    </div>
+    <div className="portal-model-toggles">
+      <label className="portal-checkbox"><input type="checkbox" checked={item.enabled} disabled={busy} onChange={event=>onChange({enabled:event.target.checked})}/>启用{isDefault&&<small>（默认模型需保持启用）</small>}</label>
+      <label className="portal-checkbox"><input type="checkbox" checked={item.selectable} disabled={busy} onChange={event=>onChange({selectable:event.target.checked})}/>可选用（发布给用户）</label>
+    </div>
+  </article>;
+}
 function ModelPanel(){
-  const [value,setValue]=useState<Models|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[loading,setLoading]=useState(true);
-  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await call<Models>({path:'/api/admin/settings',silent:true});setValue(result);}catch(e){setError(e instanceof Error?e.message:'模型配置读取失败');}finally{setLoading(false);}},[]);
+  const [models,setModels]=useState<ModelDraft[]>([]),[defaultModelId,setDefaultModelId]=useState(''),[hasApiKey,setHasApiKey]=useState<boolean|null>(null);
+  const [ready,setReady]=useState(false),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+  const load=useCallback(async()=>{
+    setLoading(true);setError('');setReady(false);
+    try{
+      const pool=normalizePool(await call<ModelSettings>({path:'/api/admin/settings',silent:true}));
+      setModels(pool.models);setDefaultModelId(pool.defaultModelId);setHasApiKey(pool.hasApiKey);setReady(true);
+    }catch(e){setError(e instanceof Error?e.message:'模型配置读取失败');}
+    finally{setLoading(false);}
+  },[]);
   useEffect(()=>{void load();},[load]);
+  // 保存成功提示稍后自动收起，避免旧提示一直占位。
+  useEffect(()=>{if(!notice)return;const timer=window.setTimeout(()=>setNotice(''),6000);return()=>window.clearTimeout(timer);},[notice]);
+  const defaultModel=models.find(item=>item.id===defaultModelId)??null;
+  function patchModel(id:string,patch:Partial<ModelDraft>){setModels(current=>current.map(item=>item.id===id?{...item,...patch}:item));}
+  function addModel(){
+    const id=modelId();
+    setModels(current=>[...current,{id,name:'',provider_name:'',base_url:'',model:'',context_tokens:'',max_output_tokens:'',price_input:'',price_output:'',price_cached:'',currency:'CNY',price_date:today(),enabled:true,selectable:true}]);
+    setDefaultModelId(current=>current||id);setError('');setNotice('');
+  }
+  function removeModel(id:string){
+    const next=models.filter(item=>item.id!==id);
+    setModels(next);
+    if(defaultModelId===id)setDefaultModelId(next.find(item=>item.enabled)?.id??next[0]?.id??'');
+  }
+  // 设为默认会同时启用该模型：后端要求默认模型必须处于启用状态。
+  function makeDefault(id:string){setDefaultModelId(id);patchModel(id,{enabled:true});}
+  function validate(){
+    if(!models.length)return '请至少添加一个模型';
+    if(!defaultModelId||!models.some(item=>item.id===defaultModelId))return '默认模型必须从模型列表中选择';
+    const current=models.find(item=>item.id===defaultModelId);
+    if(current&&!current.enabled)return `默认模型“${modelLabel(current)}”需要处于启用状态`;
+    for(const item of models){
+      const label=modelLabel(item);
+      // 服务端保存时会逐个校验模型地址与名称（停用的模型也一样）。
+      if(!item.base_url.trim()||!item.model.trim())return `模型“${label}”需要填写服务地址和模型名`;
+      if(!/^https?:\/\//i.test(item.base_url.trim()))return `模型“${label}”的服务地址需要以 http:// 或 https:// 开头`;
+      if(item.context_tokens.trim()&&numberOrNull(item.context_tokens)===null)return `模型“${label}”的上下文 token 需要填写数字`;
+      if(item.max_output_tokens.trim()&&numberOrNull(item.max_output_tokens)===null)return `模型“${label}”的最大输出 token 需要填写数字`;
+      if(item.price_input.trim()&&numberOrNull(item.price_input)===null)return `模型“${label}”的输入单价需要填写数字`;
+      if(item.price_output.trim()&&numberOrNull(item.price_output)===null)return `模型“${label}”的输出单价需要填写数字`;
+      const context=numberOrNull(item.context_tokens);
+      if(context!==null&&(!Number.isInteger(context)||context<4096||context>2000000))return `模型“${label}”的上下文 token 应是 4096–2000000 之间的整数`;
+      const output=numberOrNull(item.max_output_tokens);
+      if(output!==null&&(!Number.isInteger(output)||output<256||output>262144))return `模型“${label}”的最大输出 token 应是 256–262144 之间的整数`;
+      const priceInput=numberOrNull(item.price_input),priceOutput=numberOrNull(item.price_output);
+      if((priceInput!==null&&priceInput<0)||(priceOutput!==null&&priceOutput<0))return `模型“${label}”的单价不能为负数`;
+    }
+    return '';
+  }
   async function save(){
-    if(!value)return;
+    const problem=validate();
+    if(problem){setError(problem);setNotice('');return;}
     setBusy(true);setError('');setNotice('');
     try{
-      const {base_url,model,provider_name,context_tokens,max_output_tokens}=value;
-      setValue(await call<Models>({path:'/api/admin/settings',method:'PUT',body:{base_url,model,provider_name,context_tokens,max_output_tokens},silent:true}));
-      setNotice('模型配置已保存，运行中的工作区会自动同步');
+      const payload={models:models.map(toModelPayload),default_model_id:defaultModelId};
+      const pool=normalizePool(await call<ModelSettings>({path:'/api/admin/settings',method:'PUT',body:payload,silent:true}));
+      setModels(pool.models);setDefaultModelId(pool.defaultModelId);setHasApiKey(pool.hasApiKey);setReady(true);
+      setNotice('模型池已保存，运行中的工作区会自动同步');
     }catch(e){setError(e instanceof Error?e.message:'模型配置保存失败');}
     finally{setBusy(false);}
   }
-  const reading=loading&&!value;
-  return <section className="portal-card portal-model-card">
-    <div className="portal-card-heading"><h2>连接信息与容量限制</h2></div>
-    {reading?<p role="status">正在读取配置…</p>:(!value&&error)?<div className="portal-alert" role="alert"><p>{error}</p><button type="button" className="portal-secondary" onClick={()=>void load()}>重新读取</button></div>:value&&<form className="portal-form" onSubmit={event=>{event.preventDefault();void save();}}>
-      <label>服务名称<input maxLength={100} value={value.provider_name} onChange={event=>setValue({...value,provider_name:event.target.value})} disabled={busy}/></label>
-      <label>模型服务地址<input type="url" placeholder="https://api.your-provider.com/v1" maxLength={500} value={value.base_url} onChange={event=>setValue({...value,base_url:event.target.value})} disabled={busy}/></label>
-      <label>模型名称<input maxLength={200} value={value.model} onChange={event=>setValue({...value,model:event.target.value})} disabled={busy}/></label>
-      <div className="portal-form-grid"><label>上下文 token 容量<input type="number" placeholder="如 128000" min={4096} max={2000000} value={value.context_tokens??''} onChange={event=>setValue({...value,context_tokens:event.target.value?Number(event.target.value):null})} disabled={busy}/></label><label>最大输出 token<input type="number" placeholder="如 4096" min={256} max={262144} value={value.max_output_tokens??''} onChange={event=>setValue({...value,max_output_tokens:event.target.value?Number(event.target.value):null})} disabled={busy}/></label></div>
-      <div className="portal-config-facts"><div><span>模型密钥</span><strong>{value.has_api_key?'已由服务器配置':'尚未配置'}</strong></div><p>密钥由服务器的 SHIXUE_MODEL_API_KEY 管理，页面不读取或显示密钥</p><div><span>数据隔离</span><strong>公共资料库＋个人研究分区</strong></div></div>
+  return <section className="portal-card portal-model-pool">
+    <div className="portal-card-heading"><div><h2>模型池</h2><p>统一维护服务商、模型、价格与发布状态；用户工作区会按这里的配置自动同步</p></div>{ready&&<div className="portal-actions"><button type="button" className="portal-secondary" disabled={busy} onClick={addModel}><Plus size={16}/>添加模型</button></div>}</div>
+    {loading?<div className="portal-model-pool-form"><p role="status">正在读取模型配置…</p></div>
+    :!ready?<div className="portal-model-pool-form"><div className="portal-alert" role="alert"><span>{error||'模型配置读取失败'}</span><button type="button" className="portal-secondary" onClick={()=>void load()}>重新读取</button></div></div>
+    :<form className="portal-form portal-model-pool-form" onSubmit={event=>{event.preventDefault();void save();}}>
+      <div className="portal-config-facts">
+        <div><span>模型密钥</span><strong>{hasApiKey===null?'状态未知':hasApiKey?'已由服务器配置':'尚未配置'}</strong></div>
+        <div><span>默认模型</span><strong>{defaultModel?modelLabel(defaultModel):'未设置'}</strong></div>
+        <div><span>模型清单</span><strong>{models.length} 个 · {models.filter(item=>item.enabled).length} 个启用 · {models.filter(item=>item.selectable).length} 个可选用</strong></div>
+        <p>模型密钥由服务器环境变量 SHIXUE_MODEL_API_KEY 管理，页面不读取、不显示也不保存密钥；这里只维护模型清单、默认模型和“可选用（发布给用户）”状态。单价仅作记录，本页面不统计用量。</p>
+      </div>
+      {hasApiKey===false&&<p className="portal-alert" role="alert"><KeyRound size={16}/>服务器尚未配置 SHIXUE_MODEL_API_KEY，模型调用会失败。请联系服务器管理员配置环境变量后重启服务。</p>}
+      {models.length?<div className="portal-model-list">{models.map(item=><ModelEntry key={item.id} item={item} isDefault={item.id===defaultModelId} busy={busy} onChange={patch=>patchModel(item.id,patch)} onMakeDefault={()=>makeDefault(item.id)} onRemove={()=>removeModel(item.id)}/>)}</div>:<p className="portal-model-empty">还没有模型。点击“添加模型”，填写服务商、服务地址（OpenAI 兼容，通常以 /v1 结尾）和模型名，再设为默认并保存。</p>}
       {error&&<p className="portal-alert" role="alert">{error}</p>}
-      {notice&&<p className="portal-notice" role="status">{notice}</p>}
-      <div className="portal-actions"><button className="portal-primary" disabled={busy}>{busy?'正在保存…':'保存模型配置'}</button></div>
+      {notice&&<p className="portal-notice" role="status"><Check size={16}/>{notice}</p>}
+      <div className="portal-actions"><button type="button" className="portal-secondary" disabled={busy} onClick={()=>void load()}><RefreshCw size={16}/>放弃修改并重新读取</button><button className="portal-primary" disabled={busy}>{busy?'正在保存…':'保存模型池'}</button></div>
     </form>}
   </section>;
 }

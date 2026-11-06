@@ -24,7 +24,7 @@ def migrate(db, root: Path, now):
             with closing(sqlite3.connect(backup)) as destination:
                 db.backup(destination)
     for table, columns in {
-        'projects': {'project_type': "TEXT NOT NULL DEFAULT 'general'", 'structure_kind': "TEXT NOT NULL DEFAULT 'custom'", 'rules': "TEXT NOT NULL DEFAULT ''", 'archived': 'INTEGER NOT NULL DEFAULT 0', 'deleted': 'INTEGER NOT NULL DEFAULT 0'},
+        'projects': {'project_type': "TEXT NOT NULL DEFAULT 'general'", 'structure_kind': "TEXT NOT NULL DEFAULT 'custom'", 'rules': "TEXT NOT NULL DEFAULT ''", 'archived': 'INTEGER NOT NULL DEFAULT 0', 'deleted': 'INTEGER NOT NULL DEFAULT 0', 'model_id': "TEXT NOT NULL DEFAULT ''"},
         'bibliography': {'item_type': "TEXT NOT NULL DEFAULT 'other'", 'version_label': "TEXT NOT NULL DEFAULT ''", 'genre': "TEXT NOT NULL DEFAULT ''"},
     }.items():
         known = {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
@@ -143,6 +143,7 @@ class ProjectConfig(BaseModel):
     description: str = Field(default='', max_length=500)
     project_type: Literal['general', 'collation', 'literature', 'translation'] = 'general'
     rules: str = Field(default='', max_length=6000)
+    model_id: str = Field(default='', max_length=64)
 
 
 class LinkConfig(BaseModel):
@@ -238,7 +239,7 @@ def register(app, connection, now):
             raise HTTPException(400, '请输入项目名称')
         with connection() as db:
             project_exists(db, project_id)
-            db.execute('UPDATE projects SET name=?,description=?,project_type=?,rules=? WHERE id=?', (payload.name.strip(), payload.description, payload.project_type, payload.rules, project_id))
+            db.execute('UPDATE projects SET name=?,description=?,project_type=?,rules=?,model_id=? WHERE id=?', (payload.name.strip(), payload.description, payload.project_type, payload.rules, payload.model_id.strip() if payload.model_id else '', project_id))
             return dict(db.execute('SELECT * FROM projects WHERE id=? AND deleted=0', (project_id,)).fetchone())
 
     @app.get('/api/global-materials')

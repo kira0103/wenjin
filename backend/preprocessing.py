@@ -17,10 +17,11 @@ from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, ConfigDict, Field
 
 try:
-    from backend import research
+    from backend import research, usage
     from backend.preprocess_engine import Recipe, BUILTINS, ENGINE_VERSION, analyze, digest, formatted, prepared, samples, signature, split_texts
 except ModuleNotFoundError:
     import research
+    import usage
     from preprocess_engine import Recipe, BUILTINS, ENGINE_VERSION, analyze, digest, formatted, prepared, samples, signature, split_texts
 
 
@@ -508,9 +509,20 @@ def register(app, connection, now, generate, settings, service):
             def call_model(state):
                 if row['response_text']:
                     return {'response': row['response_text']}
-                response = generate({'task_type': 'preprocess_analyze', 'instructions': json.loads(row['request_json']).get('instructions', ''), 'target_language': '中文'}, row['sample_text'], json.loads(row['model_json']))
+                settings_snapshot = json.loads(row['model_json'])
+                reply = generate({'task_type': 'preprocess_analyze', 'instructions': json.loads(row['request_json']).get('instructions', ''), 'target_language': '中文'}, row['sample_text'], settings_snapshot)
+                if not isinstance(reply, dict):
+                    reply = {'text': reply, 'usage': None, 'latency_ms': None}
+                response = '' if reply.get('text') is None else str(reply.get('text'))
                 with connection() as db:
                     db.execute('UPDATE preprocess_jobs SET response_text=?,updated_at=? WHERE id=?', (response, now(), job_id))
+                    try:
+                        usage.record(db, project_id=row['project_id'], feature='preprocess_analyze',
+                                     source_kind='preprocess_job', source_id=job_id, request_key='analyze',
+                                     settings=settings_snapshot, usage=reply.get('usage'),
+                                     latency_ms=reply.get('latency_ms'))
+                    except Exception:
+                        pass
                 return {'response': response}
             def validate(state):
                 response = state['response'].strip()
@@ -550,7 +562,7 @@ def register(app, connection, now, generate, settings, service):
 
     @app.post('/api/projects/{project_id}/preprocess/analyze')
     def start_analysis(project_id: str, payload: AgentInput):
-        model = settings()
+        model = settings(project_id)
         if not model.get('base_url') or not model.get('model'):
             raise HTTPException(400, '请先在“模型与设置”中配置模型，再识别新格式；已有方案可以直接预览')
         with connection() as db:
@@ -591,7 +603,7 @@ def register(app, connection, now, generate, settings, service):
                 raise HTTPException(409, '此任务不需要重试')
             # Invalid responses must get a fresh call; persisted interrupted calls are reused.
             response = '' if row['status'] == 'failed' else row['response_text']
-            db.execute("UPDATE preprocess_jobs SET status='queued',response_text=?,model_json=?,error='' WHERE id=?", (response, json.dumps(settings()), job_id))
+            db.execute("UPDATE preprocess_jobs SET status='queued',response_text=?,model_json=?,error='' WHERE id=?", (response, json.dumps(settings(row['project_id'])), job_id))
         start_job(job_id)
         return {'id': job_id, 'status': 'queued'}
 

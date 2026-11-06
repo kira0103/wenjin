@@ -35,7 +35,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.concurrency import run_in_threadpool
 try:
     from backend.importers import parse_document
-    from backend import research, preprocessing, collation, collation_debug, deletion, submissions, research_results, english_journals
+    from backend import research, preprocessing, collation, collation_debug, deletion, submissions, research_results, english_journals, usage
     from backend.collation_prompt import request_options, BOOK_TITLE_RULES
     from backend.preprocess_engine import punctuation_error
     from backend.model_transport import cancellable_post
@@ -52,6 +52,7 @@ except ModuleNotFoundError:
     import submissions
     import english_journals
     import research_results
+    import usage
     from collation_prompt import request_options, BOOK_TITLE_RULES
     from preprocess_engine import punctuation_error
     from model_transport import cancellable_post
@@ -153,7 +154,8 @@ def initialize(root: Path, *, recover=True):
         db.execute("PRAGMA journal_mode=WAL")
         db.executescript("""
         CREATE TABLE IF NOT EXISTS projects (
-          id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+          model_id TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS materials (
           id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), filename TEXT NOT NULL,
@@ -191,6 +193,8 @@ def initialize(root: Path, *, recover=True):
         CREATE INDEX IF NOT EXISTS idx_task_project ON tasks(project_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_artifact_project ON artifacts(project_id, created_at DESC);
         """)
+        # AI usage ledger lives in the workspace SQLite; recording never breaks the work flow.
+        usage.ensure_schema(db)
         if not db.execute("SELECT 1 FROM projects LIMIT 1").fetchone():
             db.execute("INSERT INTO projects(id,name,description,created_at) VALUES(?,?,?,?)",
                        ("project-main", "我的研究", "论文、史料与研究笔记", utc_now()))
@@ -201,6 +205,14 @@ def initialize(root: Path, *, recover=True):
         migrate_execution(db)
         submissions.migrate(db)
         research_results.migrate(db)
+        try:
+            # One-time historical backfill; the marker keeps later starts cheap.
+            if not db.execute("SELECT 1 FROM app_settings WHERE setting_key='usage_backfill_v1'").fetchone():
+                backfilled = usage.backfill_collation(db)
+                db.execute("INSERT INTO app_settings(setting_key,setting_value) VALUES('usage_backfill_v1',?) ON CONFLICT(setting_key) DO NOTHING",
+                           (json.dumps({'state': 'done', 'backfilled': backfilled}),))
+        except Exception:
+            pass
         # Interrupted tasks are durable. Leave them visible with a recovery message.
         if recover:
             db.execute("UPDATE tasks SET status='paused', error='工作台上次退出时任务未完成，可重新发起处理。', updated_at=? WHERE status IN ('running','queued')", (utc_now(),))
@@ -302,14 +314,116 @@ class SettingsUpdate(BaseModel):
     price_date: str = Field(default='',max_length=10)
 
 
-def read_model_settings():
+# Full model-pool shape kept inside this workspace. base_url is needed to call the
+# selected provider and is only exposed through a single resolved /api/settings.
+MODEL_POOL_FIELDS = ('id','name','provider_name','base_url','model','context_tokens','max_output_tokens',
+                     'price_input_per_million','price_output_per_million','price_cached_per_million',
+                     'currency','price_date','enabled','selectable')
+PUBLIC_MODEL_POOL_FIELDS = tuple(name for name in MODEL_POOL_FIELDS if name != 'base_url')
+MODEL_POOL_NUMBERS = ('context_tokens','max_output_tokens','price_input_per_million',
+                      'price_output_per_million','price_cached_per_million')
+
+
+def _pool_flag(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        return default if not text else text not in {'0', 'false', 'no', 'off'}
+    return default
+
+
+def _pool_value(value):
+    """Coerce stored/portal model pool JSON into {'default_model_id', 'models'}."""
+    if isinstance(value, str):
+        try:
+            source = json.loads(value)
+        except (TypeError, ValueError):
+            source = {}
+    elif isinstance(value, dict):
+        source = value
+    else:
+        source = {}
+    models, seen = [], set()
+    for item in source.get('models') or []:
+        if not isinstance(item, dict):
+            continue
+        entry = {}
+        for key in MODEL_POOL_FIELDS:
+            raw = item.get(key)
+            if key in MODEL_POOL_NUMBERS:
+                entry[key] = raw if isinstance(raw, (int, float)) and not isinstance(raw, bool) else None
+            elif key in {'enabled', 'selectable'}:
+                entry[key] = _pool_flag(raw, True)
+            else:
+                entry[key] = str(raw or '')
+        identifier = entry['id']
+        if not identifier or identifier in seen:
+            continue
+        seen.add(identifier)
+        models.append(entry)
+    enabled = [entry['id'] for entry in models if entry['enabled']]
+    default = str(source.get('default_model_id') or '')
+    if default not in enabled:
+        default = enabled[0] if enabled else ''
+    return {'default_model_id': default, 'models': models}
+
+
+def read_model_pool_internal():
+    """Full synced pool (including each model's service address) for server-side use."""
+    with connection() as db:
+        row = db.execute("SELECT setting_value FROM app_settings WHERE setting_key='model_pool'").fetchone()
+    return _pool_value(row['setting_value'] if row else '')
+
+
+def read_model_pool():
+    """Public pool shape returned by /api/bootstrap: no service address."""
+    pool = read_model_pool_internal()
+    return {'default_model_id': pool['default_model_id'],
+            'models': [{key: item[key] for key in PUBLIC_MODEL_POOL_FIELDS} for item in pool['models']]}
+
+
+def save_model_pool(pool):
+    value = _pool_value(pool)
+    with connection() as db:
+        db.execute("INSERT INTO app_settings(setting_key,setting_value) VALUES(?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value",
+                   ('model_pool', json.dumps(value, ensure_ascii=False)))
+    return value
+
+
+def read_model_settings(project_id: str | None = None):
     with connection() as db:
         values = {r["setting_key"]: r["setting_value"] for r in db.execute("SELECT * FROM app_settings")}
+        selected = ''
+        if project_id:
+            try:
+                row = db.execute("SELECT model_id FROM projects WHERE id=?", (str(project_id),)).fetchone()
+            except sqlite3.OperationalError:
+                # A worker may start before the API migrates a very old workspace.
+                row = None
+            selected = str((row['model_id'] if row else '') or '')
     model = {"base_url": values.get("base_url", ""), "model": values.get("model", ""), "provider_name": values.get("provider_name", "兼容接口")}
     for key in ('context_tokens','max_output_tokens','price_input_per_million','price_output_per_million','price_cached_per_million'):
         if values.get(key):
             model[key] = json.loads(values[key])
     model.update(currency=values.get('currency',''),price_date=values.get('price_date',''))
+    if selected:
+        pool = _pool_value(values.get('model_pool'))
+        # A project keeps its model while the administrator merely unpublishes it
+        # (selectable=false); disabling the model is what falls back to the default.
+        option = next((item for item in pool['models'] if item['id'] == selected and item['enabled']), None)
+        if option:
+            for key in ('base_url','model','provider_name','context_tokens','max_output_tokens',
+                        'price_input_per_million','price_output_per_million','price_cached_per_million',
+                        'currency','price_date','id','name'):
+                value = option.get(key)
+                if key == 'base_url' and not value:
+                    continue
+                model[key] = value
     return model
 
 
@@ -356,7 +470,7 @@ def bootstrap(project_id: str = "project-main"):
             AND NOT EXISTS(SELECT 1 FROM preprocess_runs newer WHERE newer.project_id=r.project_id AND newer.material_id=r.material_id AND newer.rowid>r.rowid)""", (project_id,)).fetchone()[0]
         if catalog_compat.activated(db):
             prepared_count=db.execute("SELECT count(*) FROM preprocess_runs WHERE project_id=? AND status='accepted'",(project_id,)).fetchone()[0]
-        return {"projects": projects, "tasks": tasks, "artifacts": artifacts, "settings": setting, "materials": materials, "global_materials": global_materials, "units": research.units_for(db, project_id), "prepared_material_count": prepared_count,"collation_activity": collation.activity(db,project_id),'catalog_error':catalog_error}
+        return {"projects": projects, "tasks": tasks, "artifacts": artifacts, "settings": setting, "materials": materials, "global_materials": global_materials, "units": research.units_for(db, project_id), "prepared_material_count": prepared_count,"collation_activity": collation.activity(db,project_id),'catalog_error':catalog_error,'model_pool':read_model_pool()}
 
 
 @app.get("/api/projects")
@@ -372,7 +486,7 @@ def create_project(payload: ProjectCreate):
         raise HTTPException(400, "请输入项目名称")
     project_id = secrets.token_hex(12)
     with connection() as db:
-        db.execute("INSERT INTO projects(id,name,description,created_at,project_type,rules) VALUES(?,?,?,?,?,?)", (project_id, config.name.strip(), config.description.strip(), utc_now(), config.project_type, config.rules))
+        db.execute("INSERT INTO projects(id,name,description,created_at,project_type,rules,model_id) VALUES(?,?,?,?,?,?,?)", (project_id, config.name.strip(), config.description.strip(), utc_now(), config.project_type, config.rules, config.model_id.strip()))
         return dict(db.execute('SELECT * FROM projects WHERE id=? AND deleted=0', (project_id,)).fetchone())
 
 
@@ -612,8 +726,22 @@ def update_bibliography(book_id: str, payload: BibliographyCreate):
 
 
 @app.get("/api/settings")
-def get_settings():
-    settings = read_model_settings()
+def get_settings(project_id: str = ''):
+    settings = read_model_settings(project_id or None)
+    model_id = settings.pop('id', '')
+    model_name = settings.pop('name', '')
+    if not project_id and not model_name:
+        # The synced pool carries the administrator's display name for the default
+        # model; expose it so the UI can show “DeepSeek Flash” instead of the raw id.
+        try:
+            internal = read_model_pool_internal()
+            default = next((item for item in internal['models'] if item['id'] == internal['default_model_id']), None)
+        except Exception:
+            default = None
+        if (default and default.get('enabled') and default.get('model') == settings.get('model')
+                and (not default.get('base_url') or default.get('base_url') == settings.get('base_url'))):
+            model_id = str(default.get('id') or '')
+            model_name = str(default.get('name') or '')
     try:
         settings["has_api_key"] = bool(model_key())
     except Exception:
@@ -628,6 +756,8 @@ def get_settings():
     settings['api_key_managed'] = os.environ.get('SHIXUE_MODEL_API_KEY') is not None
     settings['service_mode'] = service.mode
     settings["data_dir"] = str(service.root) if service.mode == 'desktop' else ''
+    settings['model_id'] = model_id or ''
+    settings['model_name'] = model_name or settings.get('model', '')
     return settings
 
 
@@ -823,10 +953,36 @@ def request_completion(messages: list, settings: dict, max_output: int | None = 
     return reply
 
 
-def generate_text(task: dict, source: str, settings: dict | None = None) -> str:
+def generate_reply(task: dict, source: str, settings: dict | None = None) -> dict:
+    """Run one model request and return the complete reply (text, usage, latency)."""
     system_prompt, user_prompt = prompt_for(task['task_type'], source, task['instructions'], task.get('target_language', '中文'))
-    text = request_completion([{'role':'system','content':system_prompt}, {'role':'user','content':user_prompt}], settings or read_model_settings())['text']
+    return request_completion([{'role':'system','content':system_prompt}, {'role':'user','content':user_prompt}], settings or read_model_settings())
+
+
+# generate_text stays the single outward text API (kept for callers and tests), while
+# build_graph/the preprocessing callback pick up the full reply for usage accounting.
+_generated_reply = threading.local()
+
+
+def last_generated_reply():
+    reply = getattr(_generated_reply, 'value', None)
+    _generated_reply.value = None
+    return reply
+
+
+def generate_text(task: dict, source: str, settings: dict | None = None) -> str:
+    reply = generate_reply(task, source, settings)
+    _generated_reply.value = reply
+    text = reply['text']
     return text if task['task_type']=='punctuate' and task.get('unit_id') else text.strip()
+
+
+def preprocess_generate(task: dict, source: str, settings: dict | None = None) -> dict:
+    """Format-analysis callback: the text plus usage/latency for the ledger."""
+    last_generated_reply()
+    text = generate_text(task, source, settings)
+    reply = last_generated_reply() or {}
+    return {'text': text, 'usage': reply.get('usage'), 'latency_ms': reply.get('latency_ms')}
 
 
 @app.post("/api/settings/test")
@@ -856,7 +1012,7 @@ def execute_workflow(task_id: str):
             source, context = collect_source(db, payload, validate_unit_selection=False)
         db.execute("UPDATE tasks SET status='running',error='',updated_at=? WHERE id=?", (utc_now(), task_id))
     artifact_dir = service.root / "artifacts"
-    model_settings = read_model_settings()
+    model_settings = read_model_settings(task.get('project_id'))
     context.update({"model": model_settings["model"], "provider_name": model_settings["provider_name"]})
     with SqliteSaver.from_conn_string(str(service.root / "checkpoints" / "runs.sqlite")) as saver:
         graph = build_graph(saver, task, source, context, artifact_dir, model_settings)
@@ -880,11 +1036,23 @@ def build_graph(saver, task: dict, source: str, context: dict, artifact_dir: Pat
         return {}
 
     def call_model(state):
-        result = generate_text(task, state["source_text"], model_settings)
+        settings = model_settings or read_model_settings()
+        last_generated_reply()  # drop any stale capture before this model call
+        result = generate_text(task, state["source_text"], settings)
+        reply = last_generated_reply()
         if task['task_type'] == 'punctuate' and context.get('preprocess', {}).get('run_id'):
             error = punctuation_error(state['source_text'], result)
             if error:
                 context['text_change_warning']='点校结果有文字差异，请对照底本高亮复核'
+        if reply:
+            try:
+                with connection() as db:
+                    usage.record(db, project_id=task['project_id'], feature='task', source_kind='task',
+                                 source_id=task['id'], request_key='call-1', settings=settings,
+                                 usage=reply.get('usage'), latency_ms=reply.get('latency_ms'),
+                                 meta={'task_type': task['task_type']})
+            except Exception:
+                pass
         return {"result": result}
 
     def save_result(state):
@@ -1101,7 +1269,7 @@ def main():
 
 
 research.register(app, connection, utc_now)
-preprocess_bindings = preprocessing.register(app, connection, utc_now, lambda task, source, model: generate_text(task, source, model), read_model_settings, service)
+preprocess_bindings = preprocessing.register(app, connection, utc_now, preprocess_generate, read_model_settings, service)
 batch_runner = collation.register(app, connection, utc_now, lambda messages, model, budget: request_completion(messages, model, budget), read_model_settings, get_settings, service, preprocess_bindings['create_units'])
 debug_controller = collation_debug.register(app, connection, utc_now, lambda messages, model, budget: request_completion(messages, model, budget), read_model_settings, get_settings, service, batch_runner)
 deletion.register(app,connection,utc_now,service)

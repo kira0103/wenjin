@@ -30,6 +30,66 @@ def manuscript(db, identifier, snapshot):
     return {'filename': filename, 'content': content}
 
 
+def manuscript_docx(db, identifier, snapshot):
+    """Clean single-volume Word manuscript; pending notes are intentionally omitted."""
+    unit = db.execute('SELECT * FROM research_units WHERE id=?', (identifier,)).fetchone()
+    if not unit:
+        raise LookupError('找不到工作稿')
+    if unit['revision'] != snapshot.expected_revision:
+        raise ExportConflict('工作稿已由其他客户端更新，请重新打开后导出')
+    project = db.execute('SELECT name FROM projects WHERE id=?', (unit['project_id'],)).fetchone()
+    from backend.services import export_docx
+    data, warnings = export_docx.build(
+        snapshot.content or '', unit['title'], project['name'] if project else '',
+        status=snapshot.status,
+    )
+    return {
+        'filename': export_docx.filename_for(project['name'] if project else '', unit['title'], snapshot.content or ''),
+        'data': data,
+        'warnings': warnings,
+    }
+
+
+def manuscripts_docx(db, identifiers):
+    """Batch export: one clean Word file per selected unit, packed as a zip."""
+    import io
+    import zipfile
+    from backend.services import export_docx
+
+    archive = io.BytesIO()
+    warnings = {'pua': 0, 'replacement': 0}
+    used = set()
+    project_name = ''
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as bundle:
+        for identifier in identifiers:
+            unit = db.execute('SELECT * FROM research_units WHERE id=?', (identifier,)).fetchone()
+            if not unit:
+                raise LookupError('找不到工作稿')
+            project = db.execute('SELECT name FROM projects WHERE id=?', (unit['project_id'],)).fetchone()
+            name = project['name'] if project else ''
+            project_name = project_name or name
+            data, item_warnings = export_docx.build(unit['content'] or '', unit['title'], name)
+            warnings['pua'] += item_warnings['pua']
+            warnings['replacement'] += item_warnings['replacement']
+            filename = export_docx.filename_for(name, unit['title'], unit['content'] or '')
+            stem, dot, suffix = filename.rpartition('.')
+            candidate = filename
+            counter = 2
+            while candidate in used:
+                candidate = f'{stem}_{counter}.{suffix}'
+                counter += 1
+            used.add(candidate)
+            bundle.writestr(candidate, data)
+    if not project_name:
+        project_name = '点校稿'
+    book = re.sub(r'[_-]?点校$', '', project_name).strip() or '点校稿'
+    today = __import__('datetime').datetime.now().strftime('%Y-%m-%d')
+    archive_name = f'{book}_选中{len(identifiers)}卷_点校稿_{today}.zip'
+    return {'filename': re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', archive_name), 'data': archive.getvalue(), 'warnings': warnings}
+
+
+
+
 def quotes(anchors):
     parts = []
     for anchor in anchors:

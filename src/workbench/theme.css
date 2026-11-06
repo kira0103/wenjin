@@ -361,6 +361,12 @@ dd { margin: 0 0 12px; overflow-wrap: anywhere; }
 .entry-file-open:hover strong { color: var(--accent); }
 .entry-file .scope-note { max-width: 200px; font-size:12px; }
 .unit-list { display: grid; gap: 12px; }
+.unit-row-line { display: flex; align-items: center; gap: 10px; }
+.unit-row-line .unit-row { flex: 1; min-width: 0; }
+.unit-select { width: 18px; height: 18px; min-width: 18px; flex: none; margin: 0; padding: 0; accent-color: var(--accent); }
+.unit-bulkbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0 4px; }
+.unit-bulk-all { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.unit-bulk-all input { width: 16px; height: 16px; min-width: 16px; margin: 0; flex: none; accent-color: var(--accent); }
 .unit-row { display: flex; align-items: center; width: 100%; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--line); border-radius:var(--r-3); text-align: left; background: var(--surface); }
 .unit-row:hover { border-color: var(--accent); background: var(--surface-2); }
 .unit-row > div { display: grid; gap: 8px; flex: 1; min-width: 0; }
@@ -394,6 +400,11 @@ dd { margin: 0 0 12px; overflow-wrap: anywhere; }
 .draft-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; padding: 8px 16px; min-height: 40px; border-bottom: 1px solid var(--line); }
 .draft-heading strong { font-size:13px; }
 .unit-content-editor { flex: 1; min-height: 0; border: 0; border-radius:0; resize: none; padding: var(--sp-6); max-width: 42em; margin-inline: auto; font:17px/1.75 var(--font-reading); background: var(--surface); }
+
+/* 点校工作稿左右分栏：与清洗底文同宽同高，编辑器填满右侧阅读栏。 */
+.research-body.research-collation .research-source { background: var(--surface-2); }
+.research-body.research-collation .draft-heading { padding: 10px 16px; min-height: 68px; box-sizing: border-box; }
+.research-body.research-collation .unit-content-editor { max-width: 56em; padding: 28px clamp(24px, 2.4vw, 40px); font: 16px/1.8 var(--font-reading); }
 .unit-content-editor:focus-visible { outline-offset: -2px; }
 .draft-footer { flex-shrink: 0; padding: 12px 16px; margin: 0; border-top: 1px solid var(--line); color: var(--text-2); font-size:12px; line-height:1.75; }
 .research-panel { height: 34%; max-height: 350px; min-height: 180px; overflow: auto; flex-shrink: 0; padding: 12px 16px; background: var(--surface-2); border-top: 1px solid var(--control-border); }
@@ -489,9 +500,10 @@ dd { margin: 0 0 12px; overflow-wrap: anywhere; }
 .batch-candidate-compare pre { padding: 16px; max-height: 480px; overflow: auto; background: var(--surface); border: 1px solid var(--control-border); border-radius:8px; }
 .batch-attempt { border-bottom: 1px solid var(--control-border); padding: 12px 0; overflow-wrap: anywhere; }
 .volume-baseline { height: 100%; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; }
-.volume-baseline header { padding: 12px 16px; border-bottom: 1px solid var(--control-border); flex-shrink: 0; }
-.volume-baseline header small { display: block; margin-top: 8px; color: var(--accent); font-size:12px; }
-.baseline-text { flex: 1; overflow: auto; padding: var(--sp-4); white-space: pre-wrap; overflow-wrap: anywhere; font:15px/1.75 var(--font-reading); position: relative; }
+.volume-baseline header { min-height: 68px; box-sizing: border-box; padding: 10px 16px; border-bottom: 1px solid var(--control-border); flex-shrink: 0; display: flex; flex-direction: column; justify-content: center; }
+.volume-baseline header strong { font-size:13px; }
+.volume-baseline header small { display: block; margin-top: 6px; color: var(--accent); font-size:12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.baseline-text { flex: 1; overflow: auto; padding: 20px clamp(24px, 2.2vw, 40px); white-space: pre-wrap; overflow-wrap: anywhere; font:16px/1.8 var(--font-reading); position: relative; }
 .editor-paragraph-mirror { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; white-space: pre-wrap; box-sizing: border-box; }
 .batch-candidate-compare mark { background: var(--surface-2); color: var(--warning); border-radius:4px; }
 .diff-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0; font-size:13px; }

@@ -3,7 +3,7 @@ import { currentStorageAccount } from './storage';
 
 /** `silent`：页面已在本地展示该错误时，要求 transport 不再派发全局错误浮层。 */
 export type ApiRequest = { path: string; method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: unknown; contentType?: string; timeoutMs?: number; silent?: boolean };
-export type ApiResponse = { status: number; contentType: string; body: any };
+export type ApiResponse = { status: number; contentType: string; body: any; headers?: Record<string,string> };
 let libraryAdmin = false;
 let systemLibrary = false;
 export function setLibraryAdminApi(enabled: boolean) { libraryAdmin = enabled; }
@@ -31,8 +31,7 @@ export async function send(request: ApiRequest, signal?:AbortSignal): Promise<Ap
     const result = await window.desktop.request(bridgeRequest);
     if (result.status === 401) window.dispatchEvent(new Event('wenjin:unauthorized'));
     return result;
-  }
-  const entry=window.location?.pathname;
+  }  const entry=window.location?.pathname;
   const headers: Record<string, string> = entry?{'X-Wenjin-Portal':/^\/admin(?:\/|$)/.test(entry)?'admin':'app'}:{};
   const account = currentStorageAccount();
   if (account) headers['X-Wenjin-Account'] = account;
@@ -48,7 +47,7 @@ export async function send(request: ApiRequest, signal?:AbortSignal): Promise<Ap
   const contentType = response.headers.get('content-type') || '';
   const value = contentType.includes('json') ? await response.json() : await response.arrayBuffer();
   if (response.status === 401 && request.path !== '/api/session') window.dispatchEvent(new Event('wenjin:unauthorized'));
-  return { status: response.status, contentType, body: value };
+  return { status: response.status, contentType, body: value, headers: Object.fromEntries(response.headers.entries()) };
 }
 
 export async function call<T>(request: ApiRequest): Promise<T> {

@@ -22,12 +22,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 try:
     from backend.text_diff import compare_text
-    from backend import research
+    from backend import research, usage
     from backend.preprocess_engine import Recipe, digest, formatted, prepared, punctuation_error, split_texts
     from backend.collation_prompt import DEFAULT_SYSTEM, CONTRACT, LEGACY_CONTRACT, read_profile, request_options, OutputLimitError, NoPunctuationError, SourceFidelityError
 except ModuleNotFoundError:
     from text_diff import compare_text
     import research
+    import usage
     from preprocess_engine import Recipe, digest, formatted, prepared, punctuation_error, split_texts
     from collation_prompt import DEFAULT_SYSTEM, CONTRACT, LEGACY_CONTRACT, read_profile, request_options, OutputLimitError, NoPunctuationError, SourceFidelityError
 
@@ -699,13 +700,23 @@ class Runner:
                         raise Hold()
 
     def _receipt(self, root, attempt_id, reply, elapsed, status, error=''):
-        usage = reply.get('usage') if reply else None
-        source,output,total = token_usage(usage)
+        response_usage = reply.get('usage') if reply else None
+        source,output,total = token_usage(response_usage)
         with database(root) as db:
             db.execute('''UPDATE collation_attempts SET status=?,response_json=?,usage_json=?,input_tokens=?,output_tokens=?,total_tokens=?,
               response_id=?,finish_reason=?,latency_ms=?,finished_at=?,error=? WHERE id=?''',
-              (status,json.dumps(reply,ensure_ascii=False) if reply else '',json.dumps(usage,ensure_ascii=False) if usage is not None else None,
+              (status,json.dumps(reply,ensure_ascii=False) if reply else '',json.dumps(response_usage,ensure_ascii=False) if response_usage is not None else None,
                source,output,total,reply.get('response_id','') if reply else '',reply.get('finish_reason','') if reply else '',elapsed,self.now(),error[:1500],attempt_id))
+            try:
+                attempt = db.execute('SELECT batch_id FROM collation_attempts WHERE id=?',(attempt_id,)).fetchone()
+                batch = db.execute('SELECT project_id,model_json FROM collation_batches WHERE id=?',(attempt['batch_id'],)).fetchone() if attempt else None
+                if batch:
+                    usage.record(db, project_id=batch['project_id'], feature='collation_batch',
+                                 source_kind='batch', source_id=attempt['batch_id'], request_key=attempt_id,
+                                 settings=json.loads(batch['model_json'] or '{}'), usage=response_usage,
+                                 latency_ms=elapsed)
+            except Exception:
+                pass
 
 def register(app, connection, now, call, model_settings, public_settings, service, unit_creator):
     @app.post('/api/collation/compare')
@@ -846,7 +857,7 @@ def register(app, connection, now, call, model_settings, public_settings, servic
 
     @app.post('/api/projects/{project_id}/collation/batches')
     def create_batch(project_id: str, payload: BatchInput):
-        if not public_settings()['configured']:
+        if not public_settings(project_id)['configured']:
             raise HTTPException(400,'请先配置有效的模型连接')
         batch_id = digest({'project':project_id,'request_id':payload.request_id})[:24]
         with connection() as db:
@@ -861,7 +872,7 @@ def register(app, connection, now, call, model_settings, public_settings, servic
             raise HTTPException(400,'没有选中未点校文件；可在文件列表中选择需要重跑的文件')
         if not chosen.issubset({r['id'] for r in rows}):
             raise HTTPException(400,'包含不属于本次拆分的文件')
-        model = model_settings()
+        model = model_settings(project_id)
         with connection() as db:
             profile=read_profile(db,project_id)
         model['collation_config']=profile['config']

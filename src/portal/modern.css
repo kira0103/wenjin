@@ -89,6 +89,28 @@
 .portal-admin .portal-model-card,.portal-admin .portal-account-card { width:100%; max-width:900px; }
 .portal-admin .portal-config-facts { font-size:12px; border-radius:8px; background:var(--portal-bg); border:1px solid var(--portal-line); }
 .portal-admin .portal-config-facts p { font-size:12px; }
+/* 管理后台 · 模型池编辑器（AdminConsole ModelPanel） */
+.portal-admin .portal-model-pool { width:100%; }
+.portal-admin .portal-model-pool-form { display:grid; align-content:start; gap:var(--sp-5); padding:var(--sp-6); }
+.portal-admin .portal-model-pool-form>p[role=status] { margin:0; color:var(--portal-muted); font-size:13px; }
+.portal-admin .portal-model-list { display:grid; gap:var(--sp-4); }
+.portal-admin .portal-model-entry { display:grid; gap:var(--sp-4); padding:var(--sp-4) var(--sp-5); border:1px solid var(--portal-line); border-radius:var(--r-3); background:var(--portal-bg); }
+.portal-admin .portal-model-entry-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-4); flex-wrap:wrap; }
+.portal-admin .portal-model-entry-title { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; min-width:0; }
+.portal-admin .portal-model-entry-title h3 { margin:0; font-size:14px; font-weight:600; overflow-wrap:anywhere; }
+.portal-admin .portal-model-entry .portal-row-actions { align-items:center; flex-shrink:0; }
+.portal-admin .portal-model-entry .portal-row-actions button:disabled { color:var(--portal-muted); cursor:default; text-decoration:none; }
+.portal-admin .portal-model-entry .portal-row-actions button.danger { color:var(--danger); }
+.portal-admin .portal-model-grid { grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px 16px; }
+.portal-admin .portal-model-grid .is-wide { grid-column:1/-1; }
+.portal-admin .portal-model-toggles { display:flex; align-items:center; gap:var(--sp-5); flex-wrap:wrap; }
+.portal-admin .portal-model-toggles .portal-checkbox { display:flex; align-items:center; gap:var(--sp-2); font-size:13px; font-weight:500; }
+.portal-admin .portal-model-toggles .portal-checkbox small { font-weight:400; color:var(--portal-muted); }
+.portal-admin .portal-model-empty { margin:0; padding:24px; border:1px dashed var(--portal-line); border-radius:var(--r-3); color:var(--portal-muted); font-size:13px; line-height:1.7; text-align:center; }
+@media(max-width:760px) {
+  .portal-admin .portal-model-pool-form { padding:20px 16px; }
+  .portal-admin .portal-model-entry { padding:16px; }
+}
 .portal-mobile-toggle,.portal-mobile-close,.portal-nav-backdrop { display:none; }
 
 /* Shared source and journal components inherit portal controls, not desktop geometry. */
@@ -514,3 +536,65 @@
 :is(.portal-workspace,.portal-modal) .empty-block { border:1px dashed var(--line); border-radius:var(--r-3); background:var(--surface); color:var(--text-2); }
 :is(.portal-workspace,.portal-modal) .task-badge,
 :is(.portal-workspace,.portal-modal) .artifact-kind { font-size:12px; }
+
+/* 管理后台 · 用量台账（src/portal/UsagePanel.tsx） */
+.portal-admin .portal-usage { display:grid; gap:var(--sp-5); min-width:0; }
+.portal-admin .portal-usage-filters { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; padding:var(--sp-4) var(--sp-5); border:1px solid var(--line); border-radius:var(--r-3); background:var(--surface); }
+.portal-admin .portal-usage-filters label { display:grid; gap:6px; min-width:124px; font-size:12px; color:var(--text-2); }
+.portal-admin .portal-usage-filters :is(input,select) { min-height:var(--control-lg); padding:0 10px; border:1px solid var(--control-border); border-radius:var(--r-2); background:var(--input-bg); color:var(--text); font-size:13px; }
+.portal-admin .portal-usage-actions { display:flex; flex-wrap:wrap; gap:8px; margin-left:auto; }
+.portal-admin .portal-usage-hint,.portal-admin .portal-usage-note { margin:0; color:var(--text-2); font-size:12px; line-height:1.7; }
+.portal-admin .portal-usage-hint { padding:0 2px; }
+.portal-admin .portal-usage-note { padding:0 2px; color:var(--portal-accent); }
+.portal-admin .portal-usage-spin { animation:portal-usage-spin .8s linear infinite; }
+@keyframes portal-usage-spin { to { transform:rotate(360deg); } }
+.portal-admin .portal-usage-stats { grid-template-columns:repeat(5,minmax(0,1fr)); }
+.portal-admin .portal-usage-stats .portal-stat strong { font-size:24px; overflow-wrap:anywhere; }
+.portal-admin .portal-usage-legend { display:flex; gap:16px; white-space:nowrap; color:var(--text-2); font-size:12px; }
+.portal-admin .portal-usage-dot { display:inline-block; width:10px; height:10px; margin-right:6px; border-radius:2px; vertical-align:-1px; }
+.portal-admin .portal-usage-dot.input { background:var(--accent); }
+.portal-admin .portal-usage-dot.output { background:color-mix(in srgb,var(--accent) 42%,var(--surface-2)); }
+.portal-admin .portal-usage-chart { padding:var(--sp-4) var(--sp-6) 0; overflow-x:auto; }
+.portal-admin .portal-usage-chart svg { display:block; width:100%; min-width:620px; height:auto; }
+.portal-admin .portal-usage-grid { stroke:var(--line); stroke-width:1; stroke-dasharray:3 4; opacity:.75; }
+.portal-admin .portal-usage-axis-label { fill:var(--text-2); font-size:11px; font-variant-numeric:tabular-nums; }
+.portal-admin .portal-usage-bar-input { fill:var(--accent); }
+.portal-admin .portal-usage-bar-output { fill:color-mix(in srgb,var(--accent) 42%,var(--surface-2)); }
+.portal-admin .portal-usage-bar-zero { fill:var(--line); }
+.portal-admin .portal-usage-chart-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:var(--sp-2) var(--sp-6) var(--sp-4); border-top:1px solid var(--line); color:var(--text-2); font-size:12px; }
+.portal-admin .portal-usage-table-wrap { padding:0 0 var(--sp-4); }
+.portal-admin .portal-usage-table td,.portal-admin .portal-usage-table th { white-space:nowrap; }
+.portal-admin .portal-usage-breakdown { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--sp-5); }
+.portal-admin .portal-usage-bars { display:grid; gap:14px; padding:var(--sp-4) var(--sp-6) var(--sp-5); }
+.portal-admin .portal-usage-bar-row { display:grid; grid-template-columns:112px minmax(0,1fr) 84px; align-items:center; gap:12px; font-size:12px; }
+.portal-admin .portal-usage-bar-label { display:grid; min-width:0; overflow:hidden; color:var(--text); text-overflow:ellipsis; white-space:nowrap; }
+.portal-admin .portal-usage-bar-label small { color:var(--text-2); font-size:11px; font-weight:400; }
+.portal-admin .portal-usage-bar-track { display:block; height:8px; overflow:hidden; border-radius:999px; background:var(--surface-2); }
+.portal-admin .portal-usage-bar-fill { display:block; height:100%; min-width:2px; border-radius:999px; background:var(--accent); }
+.portal-admin .portal-usage-bar-value { color:var(--text-2); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap; }
+.portal-admin .portal-usage-expand { display:inline-grid; place-items:center; width:28px; height:28px; padding:0; border:1px solid var(--line); border-radius:var(--r-2); background:var(--surface); color:var(--text-2); }
+.portal-admin .portal-usage-expand:hover { background:var(--surface-2); color:var(--text); }
+.portal-admin .portal-usage-expand svg { transition:transform .15s ease; }
+.portal-admin .portal-usage-expand svg.is-open { transform:rotate(90deg); }
+.portal-admin .portal-usage-subrow>td { padding:0 16px 12px 28px !important; background:var(--surface-2); }
+.portal-admin .portal-usage-subrow .portal-table { margin-top:8px; border:1px solid var(--line); border-radius:var(--r-2); background:var(--surface); }
+.portal-admin .portal-usage-empty { margin:0; padding:28px var(--sp-6); color:var(--text-2); font-size:13px; text-align:center; }
+.portal-admin .portal-usage-projects-table td small { display:block; margin-top:2px; color:var(--text-2); font-size:11px; }
+@media(max-width:1280px) {
+  .portal-admin .portal-usage-stats { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media(max-width:1000px) {
+  .portal-admin .portal-usage-breakdown { grid-template-columns:1fr; }
+}
+@media(max-width:760px) {
+  .portal-admin .portal-usage-filters label { flex:1 1 140px; min-width:calc(50% - 6px); }
+  .portal-admin .portal-usage-actions { width:100%; margin-left:0; }
+  .portal-admin .portal-usage-actions button { flex:1; }
+  .portal-admin .portal-usage-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .portal-admin .portal-usage-stats .portal-stat strong { font-size:20px; }
+  .portal-admin .portal-usage-chart { padding:12px 16px 0; }
+  .portal-admin .portal-usage-chart-foot { flex-wrap:wrap; padding:12px 16px; }
+  .portal-admin .portal-usage-bars { padding:12px 16px 16px; }
+  .portal-admin .portal-usage-bar-row { grid-template-columns:90px minmax(0,1fr) 68px; gap:8px; }
+  .portal-admin .portal-usage-empty { padding:20px 16px; }
+}

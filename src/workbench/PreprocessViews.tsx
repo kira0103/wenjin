@@ -5,7 +5,7 @@ import { type Material, type Project, type ResearchUnit } from './api';
 import { prepApi, type PrepNode, type PrepRun, type PrepText } from './preprocessApi';
 import { timeLabel } from './viewState';
 
-export function VolumePreparation({ project, materials, onCreated, onMaterials, onBatch }: { onBatch(run: string): void; project: Project; materials: Material[]; onCreated(unit: ResearchUnit): Promise<void>; onMaterials(): void }) {
+export function VolumePreparation({ project, materials, onCreated, onMaterials, onBatch, onChanged }: { onBatch(run: string): void; project: Project; materials: Material[]; onCreated(unit: ResearchUnit): Promise<void>; onMaterials(): void; onChanged(): Promise<void> }) {
   const [materialId, setMaterialId] = useState(() => (materials.find(m => m.roles?.includes('base')) || materials[0])?.id || '');
   const [processing, setProcessing] = useState(false);
   const material = materials.find(m => m.id === materialId) || materials.find(m => m.roles?.includes('base')) || materials[0];
@@ -13,12 +13,12 @@ export function VolumePreparation({ project, materials, onCreated, onMaterials, 
     <p className="scope-note">把底本拆成按卷文本，完成后可导出或开始点校</p>
     {!material ? <div className="empty-block"><strong>先添加底本</strong><span>支持 Word、TXT 和有文字层的 PDF</span><button className="button-primary" onClick={onMaterials}>添加项目材料</button></div> : <>
       <label className="form-label field-narrow" style={{ maxWidth: 420 }}>底本 / 原文附件<select aria-label="预处理底本" disabled={processing} value={material.id} onChange={e => setMaterialId(e.target.value)}>{materials.map(m => <option key={m.id} value={m.id}>{m.filename}{m.roles?.includes('base') ? ' · 底本' : ''}</option>)}</select></label>
-      <Preparation key={`${project.id}-${material.id}`} project={project} material={material} onCreated={onCreated} onBatch={onBatch} onBusy={setProcessing} />
+      <Preparation key={`${project.id}-${material.id}`} project={project} material={material} onCreated={onCreated} onBatch={onBatch} onBusy={setProcessing} onChanged={onChanged} />
     </>}
   </div>;
 }
 
-function Preparation({ project, material, onCreated, onBusy, onBatch }: { onBatch(run: string): void; project: Project; material: Material; onCreated(unit: ResearchUnit): Promise<void>; onBusy(value: boolean): void }) {
+function Preparation({ project, material, onCreated, onBusy, onBatch, onChanged }: { onBatch(run: string): void; project: Project; material: Material; onCreated(unit: ResearchUnit): Promise<void>; onBusy(value: boolean): void; onChanged(): Promise<void> }) {
   const [run, setRun] = useState<PrepRun | null>(null), [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [nodes, setNodes] = useState<PrepNode[]>([]), [total, setTotal] = useState(0), [offset, setOffset] = useState(0), [query, setQuery] = useState('');
@@ -70,6 +70,7 @@ function Preparation({ project, material, onCreated, onBusy, onBatch }: { onBatc
         if (!alive.current) return;
         setRun(value); setNodes([]); setTotal(0); setQuery(''); setOffset(0); setActiveId(''); setText(null);
         setNotice('拆分完成，可以直接查看和导出。');
+        void onChanged().catch(() => { /* 概览刷新失败不影响拆分结果。 */ });
       })}>{busy === '拆分并清洗中' ? <LoaderCircle size={16} className="spin" /> : <FileText size={16} />}{loading ? '正在读取结果…' : busy === '拆分并清洗中' ? '正在拆分并清洗…' : run ? '重新拆分并清洗' : '开始拆分并清洗'}</button></div>
       <p className="scope-note">可重复执行，只保留最新拆分结果；原始文件与已有点校稿保留；无法确定的重文号或缺字留到点校时核对</p>
     </section>

@@ -8,15 +8,16 @@ from pathlib import Path
 from urllib.parse import urlsplit, unquote
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from .errors import install_handlers
 from .auth import same_origin
+from . import portal_usage
 from .portal_accounts import Accounts, AccountError, SESSION_SECONDS, public_user
 from .portal_fleet import WorkspaceFleet
 
@@ -77,8 +78,31 @@ class PasswordChange(PasswordReset):
     current_password: SecretStr
 
 
+class PoolModel(BaseModel):
+    """One selectable model inside the shared pool. No API key ever enters this API."""
+    model_config = ConfigDict(extra='ignore')
+    id: str = Field(default='', max_length=64)
+    name: str = Field(default='', max_length=100)
+    provider_name: str = Field(default='', max_length=100)
+    base_url: str = Field(default='', max_length=500)
+    model: str = Field(default='', max_length=200)
+    context_tokens: int | None = Field(default=None, ge=1)
+    max_output_tokens: int | None = Field(default=None, ge=1)
+    price_input_per_million: float | None = Field(default=None, ge=0)
+    price_output_per_million: float | None = Field(default=None, ge=0)
+    price_cached_per_million: float | None = Field(default=None, ge=0)
+    currency: str = Field(default='', max_length=12)
+    price_date: str = Field(default='', max_length=10)
+    enabled: bool = True
+    selectable: bool = True
+
+
 class ModelConfiguration(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    """Accepts the v2 pool payload and the pre-v2 single-model payload."""
+    model_config = ConfigDict(extra='ignore')
+    models: list[PoolModel] = Field(default=[], max_length=100)
+    default_model_id: str = Field(default='', max_length=64)
+    # Legacy single-model fields remain accepted (existing admin clients/tests).
     base_url: str = Field(default='', max_length=500)
     model: str = Field(default='', max_length=200)
     provider_name: str = Field(default='管理员配置的模型', max_length=100)
@@ -286,17 +310,56 @@ def create_app(root, ui_dir=None, fleet=None):
 
     @application.put('/api/admin/settings')
     def update_settings(payload: ModelConfiguration, request: Request):
-        value = payload.model_dump()
-        if bool(value['base_url']) != bool(value['model'].strip()):
-            raise HTTPException(400, '模型地址和名称需要同时填写')
-        fleet.save_settings(value)
+        if 'models' in payload.model_fields_set:
+            value = {'models': [item.model_dump() for item in payload.models],
+                     'default_model_id': payload.default_model_id.strip()}
+        else:
+            value = {key: getattr(payload, key) for key in
+                     ('base_url', 'model', 'provider_name', 'context_tokens', 'max_output_tokens')}
+            if bool(value['base_url']) != bool(value['model'].strip()):
+                raise HTTPException(400, '模型地址和名称需要同时填写')
+        try:
+            fleet.save_settings(value)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        saved = fleet.settings()
         with accounts.connection() as db:
-            accounts.audit(db, request.state.user['id'], 'model.configure', details={'model': value['model']})
+            accounts.audit(db, request.state.user['id'], 'model.configure',
+                           details={'model': saved.get('model', ''),
+                                    'default_model_id': saved.get('default_model_id', ''),
+                                    'models': [item.get('id', '') for item in saved.get('models', []) if isinstance(item, dict)]})
         return settings()
 
     @application.get('/api/admin/audit')
     def audit():
         return accounts.recent_audit()
+
+    @application.get('/api/admin/usage/summary')
+    def usage_summary(from_: str = Query('', alias='from'), to: str = Query('', alias='to'),
+                      granularity: str = Query('day'), account_id: str = Query(''),
+                      project_id: str = Query(''), feature: str = Query(''), model_id: str = Query('')):
+        try:
+            return portal_usage.summary(root, accounts, from_date=from_, to_date=to, granularity=granularity,
+                                        account_id=account_id, project_id=project_id, feature=feature,
+                                        model_id=model_id)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+
+    @application.get('/api/admin/usage/export.csv')
+    def usage_export(from_: str = Query('', alias='from'), to: str = Query('', alias='to'),
+                     granularity: str = Query('day'), account_id: str = Query(''),
+                     project_id: str = Query(''), feature: str = Query(''), model_id: str = Query('')):
+        try:
+            start, end = portal_usage.resolve_range(from_, to)
+            portal_usage.validate_granularity(granularity)
+            body = portal_usage.export_csv(root, accounts, from_date=start, to_date=end,
+                                           granularity=granularity, account_id=account_id,
+                                           project_id=project_id, feature=feature, model_id=model_id)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        filename = f'usage-{start.isoformat()}-{end.isoformat()}.csv'
+        return Response(content=body, media_type='text/csv; charset=utf-8',
+                        headers={'Content-Disposition': f'attachment; filename={filename}'})
 
     def validate_path(path):
         decoded = path

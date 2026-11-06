@@ -5,11 +5,12 @@ from contextlib import closing
 from fastapi import HTTPException
 from pydantic import BaseModel,ConfigDict,Field
 try:
-    from backend import collation
+    from backend import collation, usage
     from backend.collation_prompt import Profile,CONTRACT,DEFAULT_SYSTEM,RECOMMENDED_SYSTEM,read_profile,request_options
     from backend.preprocess_engine import digest
 except ModuleNotFoundError:
     import collation
+    import usage
     from collation_prompt import Profile,CONTRACT,DEFAULT_SYSTEM,RECOMMENDED_SYSTEM,read_profile,request_options
     from preprocess_engine import digest
 
@@ -64,7 +65,7 @@ def seed_row(db,project_id,attempt_id):
 def preview(db,project_id,payload,model_settings):
     if not payload.input_text.strip(): raise HTTPException(400,'调试样本只有空白，请选择一段实际正文')
     project=project_row(db,project_id)
-    model=model_settings()
+    model=model_settings(project_id)
     rules=project['rules']
     if payload.attempt_id:
         seed=seed_row(db,project_id,payload.attempt_id);model=json.loads(seed['model_json']);rules=seed['rules']
@@ -151,6 +152,16 @@ class Controller:
                 with collation.database(root) as db:
                     db.execute('UPDATE collation_debug_runs SET status=?,reply_json=?,validation_json=?,error=?,finished_at=? WHERE id=?',
                                (status,json.dumps(reply,ensure_ascii=False),json.dumps(validation,ensure_ascii=False),error,self.now(),run_id))
+                    try:
+                        run=db.execute('SELECT project_id,model_json FROM collation_debug_runs WHERE id=?',(run_id,)).fetchone()
+                        if run:
+                            usage.record(db, project_id=run['project_id'], feature='collation_debug',
+                                         source_kind='debug_run', source_id=run_id, request_key=run_id,
+                                         settings=json.loads(run['model_json'] or '{}'),
+                                         usage=reply.get('usage') if isinstance(reply,dict) else None,
+                                         latency_ms=reply.get('latency_ms') if isinstance(reply,dict) else None)
+                    except Exception:
+                        pass
             finally:
                 with self.lock: self.workers.pop(run_id,None)
                 self.service.tasks.discard(threading.current_thread())
@@ -163,7 +174,7 @@ def register(app,connection,now,call,model_settings,public_settings,service,batc
     def config(project_id:str):
         with connection() as db:
             project_row(db,project_id)
-            return {**read_profile(db,project_id),'model':model_settings(),'contract':CONTRACT,'recommended_prompt':RECOMMENDED_SYSTEM}
+            return {**read_profile(db,project_id),'model':model_settings(project_id),'contract':CONTRACT,'recommended_prompt':RECOMMENDED_SYSTEM}
     @app.get('/api/projects/{project_id}/collation/debug/seed/{attempt_id}')
     def seed(project_id:str,attempt_id:str):
         with connection() as db:
@@ -179,7 +190,7 @@ def register(app,connection,now,call,model_settings,public_settings,service,batc
     @app.post('/api/projects/{project_id}/collation/debug/preview')
     def request_preview(project_id:str,payload:Experiment):
         with connection() as db: model,request=preview(db,project_id,payload,model_settings)
-        return {'request':request,'model':model,'sample_chars':len(payload.input_text),'model_configured':public_settings()['configured']}
+        return {'request':request,'model':model,'sample_chars':len(payload.input_text),'model_configured':public_settings(project_id)['configured']}
     @app.post('/api/projects/{project_id}/collation/debug/runs')
     def create(project_id:str,payload:RunInput):
         root=Path(service.root);run_id=digest({'project':project_id,'request':payload.request_id})[:24]
@@ -191,7 +202,7 @@ def register(app,connection,now,call,model_settings,public_settings,service,batc
                 if previous['fingerprint']!=fingerprint: raise HTTPException(409,'相同请求编号对应不同调试内容')
                 return report(previous)
             if root in batch_runner.shutdown_roots: raise HTTPException(409,'软件正在退出，重新打开后调试')
-            if not public_settings()['configured']: raise HTTPException(400,'请先在模型与设置中配置连接')
+            if not public_settings(project_id)['configured']: raise HTTPException(400,'请先在模型与设置中配置连接')
             if db.execute("SELECT 1 FROM collation_batches WHERE status IN ('queued','running','pausing','stopping') LIMIT 1").fetchone():
                 raise HTTPException(409,'请先暂停活动批次，等待在途请求保存后再调试')
             if db.execute("SELECT 1 FROM collation_debug_runs WHERE status IN ('queued','running') LIMIT 1").fetchone():
@@ -221,7 +232,7 @@ def register(app,connection,now,call,model_settings,public_settings,service,batc
             if current['revision']!=payload.expected_revision: raise HTTPException(409,'方案已由另一页面修改，请刷新后再保存')
             run=db.execute('SELECT * FROM collation_debug_runs WHERE id=? AND project_id=?',(payload.debug_run_id,project_id)).fetchone()
             if not run or not report(run)['passed'] or json.loads(run['config_json'])!=payload.config.model_dump(): raise HTTPException(409,'请先用当前提示词与参数完成一次有实际新增标点且通过校验的调试；原样返回需人工核对')
-            tested=json.loads(run['model_json']);model=model_settings()
+            tested=json.loads(run['model_json']);model=model_settings(project_id)
             if (tested['base_url'],tested['model'])!=(model['base_url'],model['model']): raise HTTPException(409,'当前模型与测试模型不同，请改用当前模型调试后保存')
             collation.chunk_limit({**model,'collation_config':payload.config.model_dump()},project_row(db,project_id)['rules'])
             db.execute('INSERT INTO collation_configs(project_id,revision,config_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET revision=excluded.revision,config_json=excluded.config_json,updated_at=excluded.updated_at',

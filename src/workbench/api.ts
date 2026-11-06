@@ -1,7 +1,15 @@
-import { call } from './transport';
+import { call, errorMessage, send } from './transport';
 
 type ProjectType = 'general' | 'collation' | 'literature' | 'translation';
-export type Project = { id: string; name: string; description: string; project_type: ProjectType; rules: string; archived?: number; material_count?: number };
+export type ModelOption = {
+  id: string; name: string; provider_name: string; model: string;
+  context_tokens?: number | null; max_output_tokens?: number | null;
+  price_input_per_million?: number | null; price_output_per_million?: number | null;
+  price_cached_per_million?: number | null; currency?: string; price_date?: string;
+  enabled?: boolean; selectable?: boolean;
+};
+export type ModelPool = { default_model_id: string; models: ModelOption[] };
+export type Project = { id: string; name: string; description: string; project_type: ProjectType; rules: string; archived?: number; material_count?: number; model_id?: string };
 export type MaterialRole = 'base' | 'witness' | 'citation' | 'reference' | 'auxiliary';
 export type Material = { id: string; project_id: string; project_ids?: string[]; entry_id?: string; file_format?: string; position_kind?: 'page' | 'section'; roles?: MaterialRole[]; witness_label?: string; scope_note?: string; item_type?: string; version_label?: string; filename: string; title: string; page_count: number; extraction_coverage: number; reference_count?: number; created_at: string };
 export type RefItem = { id: string; ordinal: number; raw_text: string; title: string; authors: string; year: string; page_number: number; match_id?: string | null; match_status: string; matched_title?: string; matched_authors?: string; matched_year?: string; matched_reference?: string };
@@ -12,10 +20,10 @@ export type TaskArtifact = { source_excerpt?: string; source_excerpt_truncated?:
 export type WorkTask = { id: string; project_id: string; material_id: string | null; material_title?: string; task_type: TaskKind; title: string; status: string; error?: string; instructions?: string; page_from?: number; page_to?: number; manual_source?: boolean; target_language?: string; artifact?: TaskArtifact | null; created_at: string; updated_at?: string };
 type ArtifactBody = { content: string; source_context?: SourceContext; source_excerpt?: string; source_excerpt_truncated?: boolean; research_sources?:{anchor_id:string;quote:string;locator:{title:string;edition_label:string;page_index:number}}[] };
 export type WorkArtifact = { id: string; project_id: string; task_id: string; material_id: string | null; material_title?: string; title: string; artifact_type: string; body: string; created_at: string };
-export type ModelSettings = { api_key_managed?: boolean; service_mode?: string; context_tokens?: number | null; max_output_tokens?: number | null; price_input_per_million?: number | null; price_output_per_million?: number | null; price_cached_per_million?: number | null; currency?: string; price_date?: string; base_url: string; model: string; provider_name: string; configured?: boolean; has_api_key?: boolean; data_dir?: string };
+export type ModelSettings = { api_key_managed?: boolean; service_mode?: string; context_tokens?: number | null; max_output_tokens?: number | null; price_input_per_million?: number | null; price_output_per_million?: number | null; price_cached_per_million?: number | null; currency?: string; price_date?: string; base_url: string; model: string; provider_name: string; model_id?: string; model_name?: string; configured?: boolean; has_api_key?: boolean; data_dir?: string };
 export type UnitNote = { id: string; kind: 'variant' | 'citation' | 'question' | 'ai'; location: string; base_reading: string; witness_id: string; witness_reading: string; decision: string; evidence: string; status: 'pending' | 'accepted' | 'rejected' };
 export type ResearchUnit = { baseline_text?: string | null; preprocess?: { run_id?: string; node_id?: string; source_start?: number; source_end?: number; recipe_name?: string; source_hash?: string; output_hash?: string }; id: string; project_id: string; kind: 'collation' | 'translation' | 'reading'; title: string; volume: string; category: string; material_id: string; page_from: number; page_to: number; location_label: string; status: 'working' | 'review' | 'approved'; revision: number; notes: UnitNote[]; content?: string; original_text?: string; created_at: string; updated_at: string; versions?: { revision: number; status: string; created_at: string }[]; tasks?: string[] };
-export type Bootstrap = { catalog_error?: string; collation_activity?: { id: string; status: string; total: number; ended: number } | null; prepared_material_count?: number; projects: Project[]; materials: Material[]; global_materials: Material[]; units: ResearchUnit[]; tasks: WorkTask[]; artifacts: WorkArtifact[]; settings: ModelSettings };
+export type Bootstrap = { catalog_error?: string; collation_activity?: { id: string; status: string; total: number; ended: number } | null; prepared_material_count?: number; projects: Project[]; materials: Material[]; global_materials: Material[]; units: ResearchUnit[]; tasks: WorkTask[]; artifacts: WorkArtifact[]; settings: ModelSettings; model_pool?: ModelPool };
 
 export async function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET', body?: any, contentType?: string): Promise<T> {
   return call<T>({ path, method, body, contentType });
@@ -35,6 +43,26 @@ export const api = {
   unit: (id: string) => request<ResearchUnit>(`/api/units/${id}`),
   saveUnit: (unit: ResearchUnit, status = unit.status, confirm = false) => request<ResearchUnit>(`/api/units/${unit.id}`, 'PUT', { expected_revision: unit.revision, content: unit.content || '', notes: unit.notes, status, confirm_review: confirm }),
   exportUnit: (unit: ResearchUnit) => request<{filename:string;content:string}>(`/api/units/${unit.id}/export`, 'POST', { expected_revision:unit.revision,content:unit.content||'',notes:unit.notes,status:unit.status }),
+  exportUnitDocx: async (unit: ResearchUnit): Promise<{ filename: string; data: ArrayBuffer; warnings: number }> => {
+    const response = await send({ path: `/api/units/${unit.id}/export/docx`, method: 'POST', body: { expected_revision: unit.revision, content: unit.content || '', notes: unit.notes, status: unit.status } });
+    if (response.status < 200 || response.status >= 300) throw new Error(errorMessage(response.body, response.status));
+    const headers = response.headers || {};
+    const disposition = headers['content-disposition'] || '';
+    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+    let filename = `${unit.title}_点校稿.docx`;
+    if (encoded) { try { filename = decodeURIComponent(encoded[1]); } catch { /* keep fallback */ } }
+    return { filename, data: response.body as ArrayBuffer, warnings: Number(headers['x-wenjin-export-warnings'] || 0) || 0 };
+  },
+  exportUnitsDocx: async (unitIds: string[]): Promise<{ filename: string; data: ArrayBuffer; warnings: number }> => {
+    const response = await send({ path: '/api/exports/units/docx', method: 'POST', body: { unit_ids: unitIds } });
+    if (response.status < 200 || response.status >= 300) throw new Error(errorMessage(response.body, response.status));
+    const headers = response.headers || {};
+    const disposition = headers['content-disposition'] || '';
+    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+    let filename = `点校稿_选中${unitIds.length}卷.zip`;
+    if (encoded) { try { filename = decodeURIComponent(encoded[1]); } catch { /* keep fallback */ } }
+    return { filename, data: response.body as ArrayBuffer, warnings: Number(headers['x-wenjin-export-warnings'] || 0) || 0 };
+  },
   unitVersion: (id: string, revision: number) => request<ResearchUnit>(`/api/units/${id}/versions/${revision}`),
   addToLibrary: (referenceId: string) => request<any>(`/api/references/${referenceId}/add-to-library`, 'POST', {}),
   confirmReferenceVersion: (referenceId: string) => request(`/api/references/${referenceId}/confirm-version`, 'POST', {}),
