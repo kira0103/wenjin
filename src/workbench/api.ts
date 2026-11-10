@@ -25,6 +25,9 @@ export type UnitNote = { id: string; kind: 'variant' | 'citation' | 'question' |
 export type ResearchUnit = { baseline_text?: string | null; preprocess?: { run_id?: string; node_id?: string; source_start?: number; source_end?: number; recipe_name?: string; source_hash?: string; output_hash?: string }; id: string; project_id: string; kind: 'collation' | 'translation' | 'reading'; title: string; volume: string; category: string; material_id: string; page_from: number; page_to: number; location_label: string; status: 'working' | 'review' | 'approved'; revision: number; notes: UnitNote[]; content?: string; original_text?: string; created_at: string; updated_at: string; versions?: { revision: number; status: string; created_at: string }[]; tasks?: string[] };
 export type Bootstrap = { catalog_error?: string; collation_activity?: { id: string; status: string; total: number; ended: number } | null; prepared_material_count?: number; projects: Project[]; materials: Material[]; global_materials: Material[]; units: ResearchUnit[]; tasks: WorkTask[]; artifacts: WorkArtifact[]; settings: ModelSettings; model_pool?: ModelPool };
 
+export type SikuVolume = { seq: number; ji: string; juan: number; pages: number; file: string };
+export type SikuMatch = { available: boolean; seq?: number; ji?: string; juan?: number; pages?: number; file?: string; matched_by?: string; reason?: string; pdf_dir?: string; volume_count?: number };
+
 export async function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET', body?: any, contentType?: string): Promise<T> {
   return call<T>({ path, method, body, contentType });
 }
@@ -64,6 +67,8 @@ export const api = {
     return { filename, data: response.body as ArrayBuffer, warnings: Number(headers['x-wenjin-export-warnings'] || 0) || 0 };
   },
   unitVersion: (id: string, revision: number) => request<ResearchUnit>(`/api/units/${id}/versions/${revision}`),
+  unitSiku: (id: string) => request<SikuMatch>(`/api/units/${encodeURIComponent(id)}/siku`),
+  sikuVolumes: () => request<{ available: boolean; pdf_dir: string; volume_count: number; volumes: SikuVolume[] }>('/api/siku/volumes'),
   addToLibrary: (referenceId: string) => request<any>(`/api/references/${referenceId}/add-to-library`, 'POST', {}),
   confirmReferenceVersion: (referenceId: string) => request(`/api/references/${referenceId}/confirm-version`, 'POST', {}),
   createTask: (payload: object) => request<WorkTask>('/api/tasks', 'POST', payload),

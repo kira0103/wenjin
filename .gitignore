@@ -86,3 +86,11 @@ Desktop.ini
 /.uiux-audit/
 /.taste-skill/
 /scratch/
+
+# 大型古籍影印/OCR 资料（42+ GB，本地数据，不进 git）。
+# 同时避免 DSH 每轮工作区快照把未跟踪的大文件复制到系统盘临时目录。
+/中华再造善本_合璧事类备要/
+
+# 本地临时交互产物（截图/调试脚本/随手文件），不进 git
+/_tmp_img/
+/a.txt

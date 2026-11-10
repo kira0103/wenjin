@@ -41,9 +41,11 @@ services:
       SHIXUE_EMBED_PREFETCH: '4'
       SHIXUE_EMBED_WORKERS: '2'
       SHIXUE_EMBED_INFLIGHT: '2'
+      SHIXUE_SIKU_PDF_DIR: /siku-pdf
       TZ: Asia/Shanghai
     volumes:
       - ${WENJIN_DATA_DIR:-/root/wenjin-data}/portal:/data
+      - ${WENJIN_SIKU_PDF_DIR:-/mnt/e/写作软件/中华再造善本_合璧事类备要/02_影印/按卷_v6}:/siku-pdf:ro
     shm_size: 2gb
     stop_grace_period: 5m
     healthcheck:

@@ -35,7 +35,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.concurrency import run_in_threadpool
 try:
     from backend.importers import parse_document
-    from backend import research, preprocessing, collation, collation_debug, deletion, submissions, research_results, english_journals, usage
+    from backend import research, preprocessing, collation, collation_debug, deletion, submissions, research_results, english_journals, usage, siku
     from backend.collation_prompt import request_options, BOOK_TITLE_RULES
     from backend.preprocess_engine import punctuation_error
     from backend.model_transport import cancellable_post
@@ -53,6 +53,7 @@ except ModuleNotFoundError:
     import english_journals
     import research_results
     import usage
+    import siku
     from collation_prompt import request_options, BOOK_TITLE_RULES
     from preprocess_engine import punctuation_error
     from model_transport import cancellable_post
@@ -1269,6 +1270,7 @@ def main():
 
 
 research.register(app, connection, utc_now)
+siku.register(app, connection)
 preprocess_bindings = preprocessing.register(app, connection, utc_now, preprocess_generate, read_model_settings, service)
 batch_runner = collation.register(app, connection, utc_now, lambda messages, model, budget: request_completion(messages, model, budget), read_model_settings, get_settings, service, preprocess_bindings['create_units'])
 debug_controller = collation_debug.register(app, connection, utc_now, lambda messages, model, budget: request_completion(messages, model, budget), read_model_settings, get_settings, service, batch_runner)
