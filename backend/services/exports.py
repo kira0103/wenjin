@@ -82,7 +82,7 @@ def manuscripts_docx(db, identifiers):
             bundle.writestr(candidate, data)
     if not project_name:
         project_name = '点校稿'
-    book = re.sub(r'[_-]?点校$', '', project_name).strip() or '点校稿'
+    book = export_docx._safe_name(export_docx._project_book_title(project_name), '点校稿')
     today = __import__('datetime').datetime.now().strftime('%Y-%m-%d')
     archive_name = f'{book}_选中{len(identifiers)}卷_点校稿_{today}.zip'
     return {'filename': re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', archive_name), 'data': archive.getvalue(), 'warnings': warnings}

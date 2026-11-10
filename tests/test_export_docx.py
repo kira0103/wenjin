@@ -36,10 +36,31 @@ class BuildTests(unittest.TestCase):
         for text in ('前集第一卷', '天文門', '事類', '羣物之祖'):
             self.assertIn(text, document)
         self.assertIn('黑体', styles)
-        self.assertIn('《古今合璧事類備要》', header)
+        self.assertIn('《合璧事類備要》', header)
         self.assertIn('PAGE', footer)
         # Pending notes are never included.
         self.assertNotIn('待核', document)
+
+    def test_book_title_uses_project_not_first_quoted_source(self):
+        content = ('　　別集第七十一卷\r\n　　宋　謝維新　撰\r\n　　事類\r\n'
+                   '　　左氏　《左傳》曰：國之大事，在祀與戎。\r\n')
+        data, _ = export_docx.build(content, '別集第七十一卷', '合璧事類備要_点校')
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            header = archive.read('word/header1.xml').decode('utf-8')
+            document = archive.read('word/document.xml').decode('utf-8')
+            core = archive.read('docProps/core.xml').decode('utf-8')
+        self.assertIn('《合璧事類備要》', header)
+        self.assertNotIn('《左傳》', header)
+        self.assertIn('《合璧事類備要》', document)
+        self.assertIn('合璧事類備要 別集第七十一卷 點校稿', core)
+
+    def test_generic_project_falls_back_to_content_book_title(self):
+        content = '　　某卷\r\n　　事類\r\n　　《春秋》曰：春王正月。\r\n'
+        data, _ = export_docx.build(content, '某卷', '我的研究')
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            header = archive.read('word/header1.xml').decode('utf-8')
+        self.assertIn('《春秋》', header)
+        self.assertEqual(export_docx.filename_for('我的研究', '某卷', content).split('_')[0], '春秋')
 
     def test_filename_is_sanitized_and_dated(self):
         filename = export_docx.filename_for('合璧事類備要_点校', '前集第一卷', CONTENT)
@@ -47,6 +68,15 @@ class BuildTests(unittest.TestCase):
         self.assertIn('前集第一卷', filename)
         self.assertNotIn('/', filename)
         self.assertIn(datetime.now().strftime('%Y'), filename)
+
+    def test_filenames_are_uniform_across_volumes(self):
+        first = export_docx.filename_for('合璧事類備要_点校', '別集第七十一卷', '《左傳》曰云云。')
+        second = export_docx.filename_for('合璧事類備要_点校', '外集第二十五卷', '《周官》曰云云。')
+        third = export_docx.filename_for('合璧事類備要_点校', '卷首材料', '《欽定四庫全書》提要。')
+        for name, unit in ((first, '別集第七十一卷'), (second, '外集第二十五卷'), (third, '卷首材料')):
+            self.assertTrue(name.startswith('合璧事類備要_'), name)
+            self.assertIn(unit, name)
+            self.assertTrue(name.endswith('.docx'))
 
     def test_volume_title_and_author_are_not_duplicated(self):
         data, _ = export_docx.build(CONTENT, '前集第一卷', '合璧事類備要_点校')
@@ -134,6 +164,7 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(len(names), 2)
             self.assertTrue(all(name.endswith('.docx') for name in names))
             self.assertEqual(len(set(names)), 2)
+            self.assertEqual({name.split('_')[0] for name in names}, {'合璧事類備要'})
             self.assertTrue(any('前集第一卷' in name for name in names))
             self.assertTrue(any('前集第二卷' in name for name in names))
         empty = self.client.post('/api/exports/units/docx', json={'unit_ids': []})

@@ -26,6 +26,8 @@ REPLACEMENT_RE = re.compile('[\ufffd□]')
 ENTRY_RE = re.compile(r'^([^\s\u3000]{1,12})[ \u3000]+(.+)$')
 PUNCTUATION_RE = re.compile(r'[，。；：？！、“”‘’《》]')
 BOOK_TITLE_RE = re.compile(r'《([^》]{1,40})》')
+# 这些是“通用项目名”，不能当作书名；只有它们才回退到正文里找《书名》。
+GENERIC_PROJECT_NAMES = {'', '我的研究', '研究工作', '研究项目', '未命名项目', '点校稿', '工作稿', '项目'}
 
 
 def _clean(value) -> str:
@@ -98,12 +100,24 @@ def detect_warnings(content: str) -> dict:
     return {'pua': len(PUA_RE.findall(text)), 'replacement': len(REPLACEMENT_RE.findall(text))}
 
 
+def _project_book_title(project_name: str) -> str:
+    """项目名去掉“点校”后缀就是这部书的书名（批量导出必须一致）。"""
+    return re.sub(r'[\s_-]?(?:点校|點校)$', '', _clean(project_name)).strip()
+
+
 def _book_title(content: str, project_name: str, unit_title: str) -> str:
+    """书名优先取项目名；通用项目名才回退到正文里第一个《书名》。
+
+    旧逻辑无条件扫描正文，导致文件名变成该卷第一个引用的典籍名
+    （如《左傳》《呂刑》《說文》），整批导出时书名忽大忽小、每卷不同。
+    """
+    project = _project_book_title(project_name)
+    if project and project not in GENERIC_PROJECT_NAMES:
+        return project
     for line in _lines(content):
         match = BOOK_TITLE_RE.search(line)
         if match:
             return match.group(1)
-    project = re.sub(r'[_-]?点校$', '', _clean(project_name)).strip()
     return project or _clean(unit_title) or '工作稿'
 
 
