@@ -1,6 +1,7 @@
-"""Durable sequential collation with immutable inputs and per-request usage."""
+"""Durable collation with immutable inputs, per-request usage, bounded per-volume concurrency."""
 from __future__ import annotations
 
+import concurrent.futures
 import io
 import json
 import os
@@ -34,7 +35,9 @@ except ModuleNotFoundError:
 
 PROMPT_VERSION = 'collation-v1'
 MAX_ATTEMPTS = 3
-LEASE_SECONDS = 45
+# Lease 只用于保证“同一工作区只有一个执行器/一个批次”；并行在同进程线程池内完成。
+# 心跳续租失败 3 次会主动暂停批次，recover() 另留半个租约的宽限，避免误判中断。
+LEASE_SECONDS = 120
 
 
 @contextmanager
@@ -79,7 +82,9 @@ def alive(pid):
 
 def recover(db, now):
     lease = db.execute('SELECT * FROM collation_control WHERE id=1').fetchone()
-    if lease['owner'] and lease['expires'] > time.time() and alive(lease['pid']):
+    # 心跳偶发失败时给仍在运行的执行器留出半个租约的宽限，避免页面轮询
+    # 把仍在执行的卷误判为中断、重置为队列后重复付费。
+    if lease['owner'] and lease['expires'] + LEASE_SECONDS//2 > time.time() and alive(lease['pid']):
         return
     db.execute("UPDATE collation_attempts SET status='unknown',error='上次调用中断，是否产生用量未知',finished_at=? WHERE status='requesting'", (now(),))
     for batch in db.execute("SELECT * FROM collation_batches WHERE status IN ('running','pausing','stopping')").fetchall():
@@ -369,14 +374,24 @@ class Runner:
         self.service,self.now,self.call,self.create_units = service,now,call,create_units
         self.lock = threading.Lock()
         self.workers = {}
+        # 每个在途模型请求一个独立 Event：key=(root, batch_id, attempt_id)。
         self.inflight = {}
         self.shutdown_roots = set()
         self.retry_delay = 1.0
+        try:
+            width = int(os.environ.get('SHIXUE_COLLATION_WIDTH','1'))
+        except ValueError:
+            width = 1
+        # 同一个批次内最多同时执行的卷数；1 表示保持原来的逐卷串行。
+        self.width = max(1, min(16, width))
 
     def cancel_batch(self,root,batch_id):
+        root_key = str(Path(root))
         with self.lock:
-            pending=self.inflight.get((Path(root),batch_id))
-            if pending is not None:pending.set()
+            events=[event for key,event in self.inflight.items()
+                    if key[0]==root_key and key[1]==batch_id]
+        for pending in events:
+            pending.set()
 
     def kick(self):
         if not self.service.embedded_workers:
@@ -395,18 +410,39 @@ class Runner:
         owned = False
         heartbeat_stop = threading.Event()
         def heartbeat():
-            while not heartbeat_stop.wait(1):
+            root_key = str(Path(root))
+            failures, alarm = 0, False
+            while not heartbeat_stop.wait(2):
+                pending = []
                 try:
                     with self.lock:
-                        pending = [(key,event) for key,event in self.inflight.items() if key[0] == Path(root)]
+                        pending = [(key[1],event) for key,event in self.inflight.items() if key[0] == root_key]
                     with database(root) as db:
                         db.execute('UPDATE collation_control SET expires=? WHERE id=1 AND owner=?', (time.time()+LEASE_SECONDS,owner))
-                        for (_,batch_id),cancel in pending:
-                            current=db.execute('SELECT status,owner FROM collation_batches WHERE id=?',(batch_id,)).fetchone()
-                            if not current or current['status']=='stopping' or current['owner']!=owner:
+                        states = {}
+                        for batch_id,cancel in pending:
+                            stop_requested = states.get(batch_id)
+                            if stop_requested is None:
+                                current=db.execute('SELECT status,owner FROM collation_batches WHERE id=?',(batch_id,)).fetchone()
+                                stop_requested = not current or current['status']=='stopping' or current['owner']!=owner
+                                states[batch_id]=stop_requested
+                            if stop_requested:
                                 cancel.set()
+                    failures, alarm = 0, False
                 except sqlite3.Error:
-                    pass
+                    failures += 1
+                    if failures >= 3 and not alarm:
+                        # 续租连续失败：先主动暂停并取消在途请求，避免租约过期后
+                        # recover() 把仍在执行的卷误判为中断、重置后重复付费。
+                        alarm = True
+                        try:
+                            with database(root) as db:
+                                db.execute('BEGIN IMMEDIATE')
+                                db.execute("UPDATE collation_batches SET status='pausing' WHERE owner=? AND status='running'",(owner,))
+                            for _,cancel in pending:
+                                cancel.set()
+                        except sqlite3.Error:
+                            pass
         beat = None
         try:
             with database(root) as db:
@@ -422,6 +458,9 @@ class Runner:
             while root == self.service.root and root not in self.shutdown_roots:
                 with database(root) as db:
                     db.execute('BEGIN IMMEDIATE')
+                    control = db.execute('SELECT owner FROM collation_control WHERE id=1').fetchone()
+                    if not control or control['owner'] != owner:
+                        break
                     batch = db.execute("SELECT * FROM collation_batches WHERE status='queued' ORDER BY rowid LIMIT 1").fetchone()
                     if not batch:
                         break
@@ -467,41 +506,116 @@ class Runner:
             db.execute("UPDATE collation_items SET status='queued' WHERE batch_id=? AND status='running'",(batch['id'],))
 
     def _batch(self, root, batch, owner):
-        while True:
+        stop = threading.Event()
+        fatal = {}
+
+        def fail_item(item, error):
             with database(root) as db:
                 db.execute('BEGIN IMMEDIATE')
-                current = db.execute('SELECT * FROM collation_batches WHERE id=?',(batch['id'],)).fetchone()
-                if current['owner'] != owner:
-                    return
-                if current['status'] in {'pausing','stopping'} or root != self.service.root or root in self.shutdown_roots:
-                    status = 'stopped' if current['status']=='stopping' else 'paused'
-                    self._end(db,current,status)
-                    event(db,self.now,batch['id'],'已停止，在途请求已结束或取消；已完成片段保留' if status=='stopped' else '当前响应与片段已保存；已暂停')
-                    return
-                item = db.execute("SELECT * FROM collation_items WHERE batch_id=? AND status IN ('queued','running') ORDER BY seq LIMIT 1",(batch['id'],)).fetchone()
-                if not item:
-                    failed = db.execute("SELECT 1 FROM collation_items WHERE batch_id=? AND status='failed' LIMIT 1",(batch['id'],)).fetchone()
-                    self._end(db,current,'completed_with_errors' if failed else 'completed')
-                    event(db,self.now,batch['id'],'机器处理结束，'+('存在失败文件；成功稿仍需人工复核' if failed else '成功稿等待人工复核'))
-                    return
-                item = dict(item)
-                db.execute("UPDATE collation_items SET status='running',error='' WHERE id=?",(item['id'],))
-                event(db,self.now,batch['id'],'开始文件：'+item['title'],item['id'])
+                db.execute("UPDATE collation_items SET status='failed',error=?,finished_at=? WHERE id=?",
+                           (str(error)[:1500],self.now(),item['id']))
+                event(db,self.now,batch['id'],'文件失败，保留片段并继续下一文件：'+str(error)[:900],item['id'],level='error')
+
+        def run_item(item):
             try:
                 self._item(root,batch,item,owner)
             except Hold:
-                continue
+                return
             except Exception as error:
-                with database(root) as db:
-                    db.execute('BEGIN IMMEDIATE')
-                    current = db.execute('SELECT * FROM collation_batches WHERE id=?',(batch['id'],)).fetchone()
-                    if getattr(error,'fatal',False):
-                        db.execute("UPDATE collation_items SET status='queued',error=? WHERE id=?",(str(error)[:1500],item['id']))
-                        self._end(db,current,'paused',str(error)[:1500])
-                        event(db,self.now,batch['id'],'配置或服务权限错误，暂停批次：'+str(error)[:900],item['id'],level='error')
-                        return
-                    db.execute("UPDATE collation_items SET status='failed',error=?,finished_at=? WHERE id=?",(str(error)[:1500],self.now(),item['id']))
-                    event(db,self.now,batch['id'],'文件失败，保留片段并继续下一文件：'+str(error)[:900],item['id'],level='error')
+                if getattr(error,'fatal',False):
+                    fatal.setdefault('error',error)
+                    stop.set()
+                    self.cancel_batch(root,batch['id'])
+                    try:
+                        with database(root) as db:
+                            db.execute('BEGIN IMMEDIATE')
+                            db.execute("UPDATE collation_items SET status='queued',error=? WHERE id=?",(str(error)[:1500],item['id']))
+                            event(db,self.now,batch['id'],'配置或服务权限错误，暂停批次：'+str(error)[:900],item['id'],level='error')
+                    except sqlite3.Error:
+                        pass
+                    return
+                try:
+                    fail_item(item,error)
+                except Exception:
+                    pass
+
+        def wait_some(futures):
+            done,_ = concurrent.futures.wait(futures,timeout=1.0,return_when=concurrent.futures.FIRST_COMPLETED)
+            futures.difference_update(done)
+
+        reason = 'drained'
+        futures = set()
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.width,thread_name_prefix='collation-item')
+        try:
+            while True:
+                if stop.is_set():
+                    reason = 'fatal'
+                    break
+                if root != self.service.root or root in self.shutdown_roots:
+                    reason = 'shutdown'
+                    break
+                if len(futures) >= self.width:
+                    wait_some(futures)
+                    continue
+                item = None
+                try:
+                    with database(root) as db:
+                        db.execute('BEGIN IMMEDIATE')
+                        current = db.execute('SELECT * FROM collation_batches WHERE id=?',(batch['id'],)).fetchone()
+                        if not current or current['owner'] != owner:
+                            reason = 'lost'
+                            break
+                        control = db.execute('SELECT owner FROM collation_control WHERE id=1').fetchone()
+                        if not control or control['owner'] != owner:
+                            reason = 'lost'
+                            break
+                        if current['status'] != 'running':
+                            reason = current['status']
+                            break
+                        # 原子认领：只领 queued，多线程不会重复执行同一卷。
+                        claimed = db.execute(
+                            "UPDATE collation_items SET status='running',error='' WHERE id=("
+                            "SELECT id FROM collation_items WHERE batch_id=? AND status='queued' "
+                            "ORDER BY seq LIMIT 1) AND status='queued' RETURNING *",(batch['id'],)).fetchone()
+                        if claimed:
+                            item = dict(claimed)
+                            event(db,self.now,batch['id'],'开始文件：'+item['title'],item['id'])
+                except sqlite3.OperationalError:
+                    time.sleep(.5)
+                    continue
+                if item is None:
+                    if not futures:
+                        reason = 'drained'
+                        break
+                    wait_some(futures)
+                    continue
+                futures.add(pool.submit(run_item,item))
+        finally:
+            pool.shutdown(wait=True)
+        # 线程池排空之后再改批次/卷状态：暂停、停止、致命错误都不能留下“界面已停、
+        # 后台仍在写稿或计费”的窗口。
+        try:
+            with database(root) as db:
+                db.execute('BEGIN IMMEDIATE')
+                current = db.execute('SELECT * FROM collation_batches WHERE id=?',(batch['id'],)).fetchone()
+                if not current or current['owner'] != owner:
+                    return
+                if reason == 'stopping':
+                    self._end(db,current,'stopped')
+                    event(db,self.now,batch['id'],'已停止，在途请求已结束或取消；已完成片段保留')
+                elif reason == 'pausing':
+                    self._end(db,current,'paused')
+                    event(db,self.now,batch['id'],'当前响应与片段已保存；已暂停')
+                elif fatal:
+                    error = str(fatal.get('error',''))[:1500]
+                    self._end(db,current,'paused',error)
+                    event(db,self.now,batch['id'],'配置或服务权限错误，暂停批次：'+error[:900],level='error')
+                elif reason == 'drained':
+                    failed = db.execute("SELECT 1 FROM collation_items WHERE batch_id=? AND status='failed' LIMIT 1",(batch['id'],)).fetchone()
+                    self._end(db,current,'completed_with_errors' if failed else 'completed')
+                    event(db,self.now,batch['id'],'机器处理结束，'+('存在失败文件；成功稿仍需人工复核' if failed else '成功稿等待人工复核'))
+        except sqlite3.OperationalError:
+            pass
 
     def _item(self, root, batch, item, owner):
         while True:
@@ -621,10 +735,12 @@ class Runner:
                     messages=messages_for(item,chunk,batch['rules'],model.get('collation_config'),model.get('collation_contract'),model.get('collation_input_frame'),feedback,model.get('collation_glyph_mode'))
                     request={'model':model['model'],'messages':messages,**request_options(model),**output_options(budget)}
                     db.execute('INSERT INTO collation_attempts(id,batch_id,item_id,chunk_id,budget_id,status,started_at,request_json) VALUES(?,?,?,?,?,?,?,?)',(attempt_id,batch['id'],item['id'],chunk['id'],chunk['root_id'],'requesting',self.now(),json.dumps(request,ensure_ascii=False)))
-                    cancel_event=threading.Event()
-                    with self.lock:self.inflight[(Path(root),batch['id'])]=cancel_event
                     event(db,self.now,batch['id'],f'请求模型，片段字符 {chunk["start"]}–{chunk["end"]}',item['id'],chunk['id'],attempt_id)
                     if feedback: event(db,self.now,batch['id'],'重试携带具体原字错误反馈，保持原字，修订只记校记',item['id'],chunk['id'],attempt_id)
+                # 每次请求独立注册取消 Event：同批次多卷并行时互不覆盖，停止能取消全部在途请求。
+                cancel_event=threading.Event()
+                inflight_key=(str(Path(root)),batch['id'],attempt_id)
+                with self.lock:self.inflight[inflight_key]=cancel_event
                 holder['attempt']={'id':attempt_id}
                 started=time.monotonic()
                 try:
@@ -637,7 +753,7 @@ class Runner:
                     if getattr(error,'cancelled',False):raise Hold() from error
                     raise
                 finally:
-                    with self.lock:self.inflight.pop((Path(root),batch['id']),None)
+                    with self.lock:self.inflight.pop(inflight_key,None)
                 self._receipt(root,attempt_id,reply,round((time.monotonic()-started)*1000),'received')
                 return {'reply':reply}
             def validation_node(state):
@@ -766,15 +882,20 @@ def register(app, connection, now, call, model_settings, public_settings, servic
         active = max(0,time.time()-row['active_since']) if row['active_since'] else 0
         value['elapsed_seconds'] = round(row['active_seconds']+active)
         value['estimated_remaining_seconds'] = round(value['elapsed_seconds']*(value['total']-value['ended'])/value['ended']) if value['ended'] and row['status']=='running' else None
-        current = db.execute("SELECT id,title FROM collation_items WHERE batch_id=? AND status='running' ORDER BY seq LIMIT 1",(row['id'],)).fetchone()
-        value['current'] = dict(current) if current else None
-        if current:
-            progress = dict(db.execute("SELECT count(*) chunks,sum(CASE WHEN status='done' THEN 1 ELSE 0 END) completed_chunks FROM collation_chunks WHERE item_id=? AND status!='split'",(current['id'],)).fetchone())
-            request = db.execute("SELECT started_at FROM collation_attempts WHERE item_id=? AND status='requesting' ORDER BY rowid DESC LIMIT 1",(current['id'],)).fetchone()
-            received = db.execute("SELECT 1 FROM collation_attempts WHERE item_id=? AND status='received' LIMIT 1",(current['id'],)).fetchone()
-            value['current'].update(progress)
-            value['current']['stage'] = '等待模型响应' if request else '验证与保存响应' if received else '片段衔接或整卷合并'
-            value['current']['waiting_seconds'] = max(0,round((datetime.now(timezone.utc)-datetime.fromisoformat(request['started_at'])).total_seconds())) if request else 0
+        def running_item_progress(item):
+            item_value = {'id':item['id'],'title':item['title'],'seq':item['seq']}
+            item_value.update(dict(db.execute("SELECT count(*) chunks,sum(CASE WHEN status='done' THEN 1 ELSE 0 END) completed_chunks FROM collation_chunks WHERE item_id=? AND status!='split'",(item['id'],)).fetchone()))
+            request = db.execute("SELECT started_at FROM collation_attempts WHERE item_id=? AND status='requesting' ORDER BY rowid DESC LIMIT 1",(item['id'],)).fetchone()
+            received = db.execute("SELECT 1 FROM collation_attempts WHERE item_id=? AND status='received' LIMIT 1",(item['id'],)).fetchone()
+            item_value['stage'] = '等待模型响应' if request else '验证与保存响应' if received else '片段衔接或整卷合并'
+            item_value['waiting_seconds'] = max(0,round((datetime.now(timezone.utc)-datetime.fromisoformat(request['started_at'])).total_seconds())) if request else 0
+            return item_value
+        running = [running_item_progress(dict(item)) for item in db.execute(
+            "SELECT id,title,seq FROM collation_items WHERE batch_id=? AND status='running' ORDER BY seq LIMIT ?",(row['id'],max(1,runner.width))).fetchall()]
+        value['parallel'] = runner.width
+        value['running'] = running
+        # current 保留给旧页面：等于 running[0]，没有执行中的卷时为 None。
+        value['current'] = running[0] if running else None
         price = value['model']
         value['estimated_cost'] = None
         value['cost_note'] = '未配置本模型单价'
@@ -977,6 +1098,10 @@ def register(app, connection, now, call, model_settings, public_settings, servic
             row=batch_row(db,batch_id)
             if payload.action in {'resume','retry'} and db.execute("SELECT 1 FROM collation_debug_runs WHERE status IN ('queued','running') LIMIT 1").fetchone():
                 raise HTTPException(409,'请等待调试请求完成，再继续批次')
+            # 防御性守卫：并行执行时在途请求可能有多个，必须等它们全部落库后
+            # 才允许继续/重试，避免同一片段被重复请求、重复计费。
+            if payload.action in {'resume','retry'} and db.execute("SELECT 1 FROM collation_attempts WHERE batch_id=? AND status='requesting' LIMIT 1",(batch_id,)).fetchone():
+                raise HTTPException(409,'仍有在途请求，请等保存完成后再继续')
             if payload.action=='pause':
                 if row['status']=='queued':
                     db.execute("UPDATE collation_batches SET status='paused' WHERE id=?",(batch_id,))

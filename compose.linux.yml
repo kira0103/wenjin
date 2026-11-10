@@ -42,6 +42,8 @@ services:
       SHIXUE_EMBED_WORKERS: '2'
       SHIXUE_EMBED_INFLIGHT: '2'
       SHIXUE_SIKU_PDF_DIR: /siku-pdf
+      # 同一批量点校批次内同时执行的卷数；1 = 逐卷串行，默认 8。
+      SHIXUE_COLLATION_WIDTH: '${SHIXUE_COLLATION_WIDTH:-8}'
       TZ: Asia/Shanghai
     volumes:
       - ${WENJIN_DATA_DIR:-/root/wenjin-data}/portal:/data

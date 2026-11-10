@@ -4,6 +4,7 @@ import secrets
 import sqlite3
 import tempfile
 import threading
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -12,6 +13,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from backend import app as service
 from backend import collation
+from backend.model_transport import ModelCallCancelled
 
 SOURCE='卷五\n事类天地【丨丨之精】日月【明月】\n卷六\n格物总论【天地运行】\n'
 
@@ -374,6 +376,133 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(item['pending_questions'],1)
         unit=self.client.get('/api/units/'+item['unit_id']).json()
         self.assertTrue(any(n['evidence']=='字形需查底本' and n['status']=='pending' for n in unit['notes']))
+
+
+class ConcurrencyTests(BatchTests):
+    """同一批次多卷并行：原子认领、按请求取消、排空后收尾。"""
+
+    def setUp(self):
+        super().setUp()
+        self.old_width=service.batch_runner.width
+
+    def tearDown(self):
+        service.batch_runner.width=self.old_width
+        super().tearDown()
+
+    def prepare(self,count=4):
+        names=['一','二','三','四','五','六','七','八']
+        source=''.join('卷'+names[index]+'\n'+('天地玄黄宇宙洪荒'*40)+'\n' for index in range(count))
+        material=self.upload(source)
+        self.run=self.client.post(f'/api/projects/{self.project}/preprocess/split',json={'material_id':material['id']}).json()
+        self.assertEqual(self.run.get('status'),'accepted',self.run)
+        return self.create()
+
+    def wait_inflight(self,count,timeout=10):
+        deadline=time.monotonic()+timeout
+        while time.monotonic()<deadline:
+            with service.batch_runner.lock:
+                pending=len(service.batch_runner.inflight)
+            if pending>=count:
+                return pending
+            time.sleep(.02)
+        return pending
+
+    def test_parallel_volumes_overlap_and_stay_isolated(self):
+        batch=self.prepare(4)
+        service.batch_runner.width=4
+        barrier=threading.Barrier(4,timeout=10)
+        def parallel(messages,model,budget):
+            barrier.wait()
+            return answer(messages,model,budget)
+        with patch.object(service,'request_completion',side_effect=parallel) as model:
+            service.batch_runner._worker(self.root)
+            self.assertEqual(model.call_count,4)
+        value=self.get(batch)
+        self.assertEqual(value['status'],'completed')
+        self.assertEqual(value['counts']['done'],4)
+        self.assertEqual(value['counts']['queued'],0)
+        self.assertEqual(value['counts']['running'],0)
+        self.assertEqual(len({item['unit_id'] for item in self.items(batch)}),4)
+        for item in self.items(batch):
+            unit=self.client.get('/api/units/'+item['unit_id']).json()
+            baseline=self.client.get('/api/units/'+unit['id']+'/baseline').json()['baseline']
+            self.assertEqual(collation.punctuation_error(baseline,unit['content']),'')
+            self.assertTrue(unit['content'].rstrip().endswith('。'))
+
+    def test_parallel_pause_drains_all_inflight_then_resumes_without_duplicates(self):
+        batch=self.prepare(4)
+        service.batch_runner.width=2
+        release=threading.Event()
+        entered=threading.Barrier(2,timeout=10)
+        calls=[]
+        def blocking(messages,model,budget):
+            calls.append(1)
+            entered.wait()
+            self.assertTrue(release.wait(10))
+            return answer(messages,model,budget)
+        with patch.object(service,'request_completion',side_effect=blocking):
+            worker=threading.Thread(target=service.batch_runner._worker,args=(self.root,));worker.start()
+            try:
+                self.assertGreaterEqual(self.wait_inflight(2),2)
+                running=self.get(batch)['running']
+                self.assertEqual(len(running),2)
+                self.action(batch,'pause')
+            finally:
+                release.set()
+                worker.join(15)
+            self.assertFalse(worker.is_alive())
+        paused=self.get(batch)
+        self.assertEqual(paused['status'],'paused')
+        self.assertEqual(paused['counts']['running'],0)
+        self.assertEqual(paused['counts']['done'],2)
+        self.assertEqual(paused['counts']['queued'],2)
+        self.action(batch,'resume')
+        remaining=self.execute()
+        self.assertEqual(remaining,2)
+        finished=self.get(batch)
+        self.assertEqual(finished['status'],'completed')
+        self.assertEqual(finished['counts']['done'],4)
+        self.assertEqual(finished['usage']['requests'],4)
+        with service.connection() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM collation_items WHERE status='running'").fetchone()[0],0)
+
+    def test_parallel_stop_cancels_every_inflight_request(self):
+        batch=self.prepare(4)
+        service.batch_runner.width=4
+        entered=threading.Barrier(4,timeout=10)
+        def slow(messages,model,budget):
+            entered.wait()
+            self.assertTrue(model['_cancel_event'].wait(10))
+            raise ModelCallCancelled()
+        with patch.object(service,'request_completion',side_effect=slow) as model:
+            worker=threading.Thread(target=service.batch_runner._worker,args=(self.root,));worker.start()
+            self.assertGreaterEqual(self.wait_inflight(4),4)
+            self.action(batch,'stop')
+            worker.join(15)
+            self.assertFalse(worker.is_alive())
+        value=self.get(batch)
+        self.assertEqual(value['status'],'stopped')
+        self.assertEqual(value['counts']['failed'],0)
+        self.assertEqual(value['counts']['running'],0)
+        self.assertEqual(value['usage']['unknown_requests'],4)
+        self.assertEqual(model.call_count,4)
+
+    def test_parallel_fatal_error_pauses_batch_and_keeps_finished_volume(self):
+        batch=self.prepare(4)
+        service.batch_runner.width=2
+        def mixed(messages,model,budget):
+            if json.loads(messages[-1]['content'])['file'] in {'卷二','卷三'}:
+                raise service.ModelCallError('密钥失效',fatal=True)
+            return answer(messages,model,budget)
+        with patch.object(service,'request_completion',side_effect=mixed):
+            service.batch_runner._worker(self.root)
+        value=self.get(batch)
+        self.assertEqual(value['status'],'paused')
+        self.assertIn(value['counts']['done'],(1,2))
+        self.assertEqual(value['counts']['running'],0)
+        self.assertEqual(value['counts']['failed'],0)
+        self.assertEqual(value['counts']['done']+value['counts']['queued']+value['counts']['stopped'],4)
+        self.assertGreaterEqual(value['usage']['unknown_requests'],1)
 
 
 class PureTests(unittest.TestCase):

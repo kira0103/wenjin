@@ -87,6 +87,7 @@ $env:SHIXUE_KB_DATABASE_URL = 'postgresql+psycopg://shixue_app:<密码>@127.0.0.
 | `SHIXUE_EMBED_PREFETCH` | 每篇文档预取批次数，默认 2，最大 4 |
 | `SHIXUE_EMBED_WORKERS` | 拼批消费者线程数，默认 2，最大 4 |
 | `SHIXUE_EMBED_INFLIGHT` | 同时执行的 ONNX 推理数，默认 2；串行回退设为 1 |
+| `SHIXUE_COLLATION_WIDTH` | 同一批量点校批次内同时执行的卷数，默认 1（逐卷串行）；部署示例设为 8。回退串行设为 1，重启执行进程后对新批次生效 |
 
 模型地址和名称会同步到运行中的工作区。密钥来自各宿主的启动环境；更换密钥需要正常停止门户与全部工作区后重启，仅重启门户主进程不会改变已有宿主的环境。
 
