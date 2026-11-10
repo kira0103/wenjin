@@ -37,11 +37,13 @@ def register(app, state, connection):
         warnings = value.get('warnings') or {}
         pua = int(warnings.get('pua') or 0)
         replacement = int(warnings.get('replacement') or 0)
+        mapped = int(warnings.get('mapped') or 0)
         headers = {
             'Content-Disposition': "attachment; filename=\"manuscripts.zip\"; filename*=UTF-8''" + quote(value['filename']),
             'X-Wenjin-Export-Pua': str(pua),
             'X-Wenjin-Export-Replacement': str(replacement),
             'X-Wenjin-Export-Warnings': str(pua + replacement),
+            'X-Wenjin-Export-Mapped': str(mapped),
             'Cache-Control': 'no-store',
         }
         return Response(content=value['data'], media_type='application/zip', headers=headers)
@@ -76,11 +78,13 @@ def register(app, state, connection):
         warnings = value.get('warnings') or {}
         pua = int(warnings.get('pua') or 0)
         replacement = int(warnings.get('replacement') or 0)
+        mapped = int(warnings.get('mapped') or 0)
         headers = {
             'Content-Disposition': "attachment; filename=\"manuscript.docx\"; filename*=UTF-8''" + quote(value['filename']),
             'X-Wenjin-Export-Pua': str(pua),
             'X-Wenjin-Export-Replacement': str(replacement),
             'X-Wenjin-Export-Warnings': str(pua + replacement),
+            'X-Wenjin-Export-Mapped': str(mapped),
             'Cache-Control': 'no-store',
         }
         return Response(content=value['data'],

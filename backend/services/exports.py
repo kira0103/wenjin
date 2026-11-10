@@ -41,7 +41,7 @@ def manuscript_docx(db, identifier, snapshot):
     from backend.services import export_docx
     data, warnings = export_docx.build(
         snapshot.content or '', unit['title'], project['name'] if project else '',
-        status=snapshot.status,
+        status=snapshot.status, include_unresolved_list=True,
     )
     return {
         'filename': export_docx.filename_for(project['name'] if project else '', unit['title'], snapshot.content or ''),
@@ -57,7 +57,8 @@ def manuscripts_docx(db, identifiers):
     from backend.services import export_docx
 
     archive = io.BytesIO()
-    warnings = {'pua': 0, 'replacement': 0}
+    warnings = {'pua': 0, 'replacement': 0, 'mapped': 0}
+    unresolved_files = []
     used = set()
     project_name = ''
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as bundle:
@@ -71,6 +72,9 @@ def manuscripts_docx(db, identifiers):
             data, item_warnings = export_docx.build(unit['content'] or '', unit['title'], name)
             warnings['pua'] += item_warnings['pua']
             warnings['replacement'] += item_warnings['replacement']
+            warnings['mapped'] += item_warnings.get('mapped', 0)
+            if item_warnings.get('unresolved'):
+                unresolved_files.append((unit['title'], item_warnings['unresolved']))
             filename = export_docx.filename_for(name, unit['title'], unit['content'] or '')
             stem, dot, suffix = filename.rpartition('.')
             candidate = filename
@@ -80,6 +84,28 @@ def manuscripts_docx(db, identifiers):
                 counter += 1
             used.add(candidate)
             bundle.writestr(candidate, data)
+        if unresolved_files:
+            by_code = {}
+            for _, items in unresolved_files:
+                for item in items:
+                    key = (item['codepoint'], item.get('sk'), item['description'])
+                    by_code[key] = by_code.get(key, 0) + 1
+            report = ['私用区字符处理清单（导出 Word 时自动生成）', '',
+                      f'已自动还原为标准 Unicode：{warnings["mapped"]} 处',
+                      f'待人工处理：{warnings["pua"] + warnings["replacement"]} 处，共 {len(by_code)} 种码位（Word 中以 □ 显示）', '']
+            report.append('待人工处理码位汇总（按出现次数排序）：')
+            for (code, sk, description), count in sorted(by_code.items(), key=lambda item: -item[1]):
+                extra = f'（SK {sk}）' if sk else ''
+                report.append(f'  {code}{extra} {description}：{count} 处')
+            report.append('')
+            report.append('逐卷明细：')
+            for title, items in unresolved_files:
+                report.append('===== ' + title + ' =====')
+                for number, item in enumerate(items, 1):
+                    extra = f'（SK {item["sk"]}）' if item.get('sk') else ''
+                    report.append(f'{number}. {item["codepoint"]}{extra} {item["description"]}｜上下文：{item["context"]}')
+                report.append('')
+            bundle.writestr('_私用区待人工处理清单.txt', '\n'.join(report))
     if not project_name:
         project_name = '点校稿'
     book = export_docx._safe_name(export_docx._project_book_title(project_name), '点校稿')

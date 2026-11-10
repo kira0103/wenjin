@@ -99,9 +99,10 @@ export function ResearchList({ project, units, materials, onSelect, onCreated, o
     try {
       const file = await api.exportUnitsDocx(selected);
       await platform.saveFile({ filename: file.filename, data: file.data });
+      const restored = file.mapped > 0 ? `已自动还原 ${file.mapped} 处私用区字；` : '';
       setBatchNotice(file.warnings > 0
-        ? `已导出 ${selected.length} 卷（ZIP）；检测到 ${file.warnings} 处私用区/缺字字符，请对照原文检查。`
-        : `已导出 ${selected.length} 卷 Word（ZIP，每卷一个文件，仅正文）。`);
+        ? `已导出 ${selected.length} 卷（ZIP）；${restored}另有 ${file.warnings} 处无法自动映射，Word 中以 □ 显示，清单见 ZIP 内《_私用区待人工处理清单.txt》，请对照善本处理。`
+        : `已导出 ${selected.length} 卷 Word（ZIP，每卷一个文件，仅正文）${restored ? `；${restored}` : ''}。`);
       setSelected([]);
     } catch (e) { setBatchError((e as Error).message); }
     finally { setExportingBatch(false); }
@@ -268,8 +269,8 @@ export function ResearchEditor({ id, project, materials, tasks, onBack, onChange
       const file = await api.exportUnitDocx(unit);
       await platform.saveFile({ filename: file.filename, data: file.data });
       setExportNotice(file.warnings > 0
-        ? `Word 已导出；检测到 ${file.warnings} 处私用区/缺字字符，可能在 Word 中显示空白，请对照原文检查。`
-        : 'Word 已导出（仅正文，未包含待核记录）。');
+        ? `Word 已导出；已自动还原 ${file.mapped} 处私用区字；另有 ${file.warnings} 处无法自动映射，以 □ 显示并附在文末清单，请对照善本处理。`
+        : `Word 已导出（仅正文，未包含待核记录）${file.mapped > 0 ? `；已自动还原 ${file.mapped} 处私用区字` : ''}。`);
     } catch (e) { setError((e as Error).message); }
     finally { setExportingWord(false); }
   };

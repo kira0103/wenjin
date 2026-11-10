@@ -27,7 +27,8 @@ CONTENT = (
 class BuildTests(unittest.TestCase):
     def test_builds_docx_with_structure_and_warning_header_data(self):
         data, warnings = export_docx.build(CONTENT, '前集第一卷', '合璧事類備要_点校')
-        self.assertEqual(warnings['pua'], 1)
+        self.assertEqual(warnings['pua'], 0)
+        self.assertEqual(warnings['mapped'], 1)
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             document = archive.read('word/document.xml').decode('utf-8')
             styles = archive.read('word/styles.xml').decode('utf-8')
@@ -38,8 +39,31 @@ class BuildTests(unittest.TestCase):
         self.assertIn('黑体', styles)
         self.assertIn('《合璧事類備要》', header)
         self.assertIn('PAGE', footer)
+        # 私用区字已还原成扩展 B 区真字，并使用 SimSun-ExtB 字体。
+        self.assertIn('𤣥', document)
+        self.assertIn('SimSun-ExtB', document)
+        self.assertNotIn('\uea20', document)
         # Pending notes are never included.
         self.assertNotIn('待核', document)
+
+    def test_unmapped_pua_becomes_box_and_is_listed(self):
+        content = CONTENT + '　　附考\uedab。\r\n'
+        data, warnings = export_docx.build(content, '前集第一卷', '合璧事類備要_点校', include_unresolved_list=True)
+        self.assertEqual(warnings['pua'], 1)
+        self.assertEqual(warnings['mapped'], 1)
+        self.assertEqual(warnings['unresolved'][0]['codepoint'], 'U+EDAB')
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            document = archive.read('word/document.xml').decode('utf-8')
+        self.assertIn('□', document)
+        self.assertNotIn('\uedab', document)
+        self.assertIn('未能自动还原', document)
+        self.assertIn('U+EDAB', document)
+
+    def test_pua_mapping_data_covers_known_codes(self):
+        entries = export_docx.pua_entries()
+        self.assertEqual(entries['EA20']['char'], '𤣥')
+        self.assertEqual(entries['EA5B']['char'], '𫝊')
+        self.assertIn('description', entries['EDAB'])
 
     def test_book_title_uses_project_not_first_quoted_source(self):
         content = ('　　別集第七十一卷\r\n　　宋　謝維新　撰\r\n　　事類\r\n'
@@ -127,12 +151,14 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.headers['content-type'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
         self.assertIn('filename*=UTF-8', response.headers['content-disposition'])
         self.assertIn('.docx', response.headers['content-disposition'])
-        self.assertEqual(response.headers['x-wenjin-export-pua'], '1')
-        self.assertEqual(response.headers['x-wenjin-export-warnings'], '1')
+        self.assertEqual(response.headers['x-wenjin-export-pua'], '0')
+        self.assertEqual(response.headers['x-wenjin-export-warnings'], '0')
+        self.assertEqual(response.headers['x-wenjin-export-mapped'], '1')
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
             self.assertIn('word/document.xml', archive.namelist())
             document = archive.read('word/document.xml').decode('utf-8')
         self.assertIn('前集第一卷', document)
+        self.assertIn('𤣥', document)
         self.assertNotIn('待核', document)
 
     def test_stale_revision_is_rejected(self):
@@ -158,7 +184,9 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.headers['content-type'], 'application/zip')
         self.assertIn('filename*=UTF-8', response.headers['content-disposition'])
         self.assertIn('.zip', response.headers['content-disposition'])
-        self.assertEqual(response.headers['x-wenjin-export-pua'], '2')
+        self.assertEqual(response.headers['x-wenjin-export-pua'], '0')
+        self.assertEqual(response.headers['x-wenjin-export-warnings'], '0')
+        self.assertEqual(response.headers['x-wenjin-export-mapped'], '2')
         with zipfile.ZipFile(io.BytesIO(response.content)) as bundle:
             names = bundle.namelist()
             self.assertEqual(len(names), 2)
@@ -169,6 +197,27 @@ class ApiTests(unittest.TestCase):
             self.assertTrue(any('前集第二卷' in name for name in names))
         empty = self.client.post('/api/exports/units/docx', json={'unit_ids': []})
         self.assertEqual(empty.status_code, 422)
+
+    def test_batch_export_writes_unresolved_list(self):
+        timestamp = service.utc_now()
+        content = CONTENT + '　　附考\uedab。\r\n'
+        with service.connection() as db:
+            db.execute(
+                "INSERT INTO research_units(id,project_id,kind,title,volume,category,material_id,page_from,page_to,location_label,original_text,content,notes_json,status,revision,created_at,updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ('unit-docx-unresolved', self.project_id, 'collation', '前集第三卷', '', '', '', 5, 6, '',
+                 content, content, '[]', 'review', 1, timestamp, timestamp),
+            )
+        response = self.client.post('/api/exports/units/docx', json={'unit_ids': [self.unit_id, 'unit-docx-unresolved']})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers['x-wenjin-export-pua'], '1')
+        self.assertEqual(response.headers['x-wenjin-export-mapped'], '2')
+        with zipfile.ZipFile(io.BytesIO(response.content)) as bundle:
+            names = bundle.namelist()
+            self.assertIn('_私用区待人工处理清单.txt', names)
+            report = bundle.read('_私用区待人工处理清单.txt').decode('utf-8')
+        self.assertIn('U+EDAB', report)
+        self.assertIn('待人工处理：1 处', report)
 
 
 class BatchExportLimitTests(unittest.TestCase):

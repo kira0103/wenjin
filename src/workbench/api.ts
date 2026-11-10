@@ -46,7 +46,7 @@ export const api = {
   unit: (id: string) => request<ResearchUnit>(`/api/units/${id}`),
   saveUnit: (unit: ResearchUnit, status = unit.status, confirm = false) => request<ResearchUnit>(`/api/units/${unit.id}`, 'PUT', { expected_revision: unit.revision, content: unit.content || '', notes: unit.notes, status, confirm_review: confirm }),
   exportUnit: (unit: ResearchUnit) => request<{filename:string;content:string}>(`/api/units/${unit.id}/export`, 'POST', { expected_revision:unit.revision,content:unit.content||'',notes:unit.notes,status:unit.status }),
-  exportUnitDocx: async (unit: ResearchUnit): Promise<{ filename: string; data: ArrayBuffer; warnings: number }> => {
+  exportUnitDocx: async (unit: ResearchUnit): Promise<{ filename: string; data: ArrayBuffer; warnings: number; mapped: number }> => {
     const response = await send({ path: `/api/units/${unit.id}/export/docx`, method: 'POST', body: { expected_revision: unit.revision, content: unit.content || '', notes: unit.notes, status: unit.status } });
     if (response.status < 200 || response.status >= 300) throw new Error(errorMessage(response.body, response.status));
     const headers = response.headers || {};
@@ -54,9 +54,9 @@ export const api = {
     const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
     let filename = `${unit.title}_点校稿.docx`;
     if (encoded) { try { filename = decodeURIComponent(encoded[1]); } catch { /* keep fallback */ } }
-    return { filename, data: response.body as ArrayBuffer, warnings: Number(headers['x-wenjin-export-warnings'] || 0) || 0 };
+    return { filename, data: response.body as ArrayBuffer, warnings: Number(headers['x-wenjin-export-warnings'] || 0) || 0, mapped: Number(headers['x-wenjin-export-mapped'] || 0) || 0 };
   },
-  exportUnitsDocx: async (unitIds: string[]): Promise<{ filename: string; data: ArrayBuffer; warnings: number }> => {
+  exportUnitsDocx: async (unitIds: string[]): Promise<{ filename: string; data: ArrayBuffer; warnings: number; mapped: number }> => {
     const response = await send({ path: '/api/exports/units/docx', method: 'POST', body: { unit_ids: unitIds } });
     if (response.status < 200 || response.status >= 300) throw new Error(errorMessage(response.body, response.status));
     const headers = response.headers || {};
@@ -64,7 +64,7 @@ export const api = {
     const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
     let filename = `点校稿_选中${unitIds.length}卷.zip`;
     if (encoded) { try { filename = decodeURIComponent(encoded[1]); } catch { /* keep fallback */ } }
-    return { filename, data: response.body as ArrayBuffer, warnings: Number(headers['x-wenjin-export-warnings'] || 0) || 0 };
+    return { filename, data: response.body as ArrayBuffer, warnings: Number(headers['x-wenjin-export-warnings'] || 0) || 0, mapped: Number(headers['x-wenjin-export-mapped'] || 0) || 0 };
   },
   unitVersion: (id: string, revision: number) => request<ResearchUnit>(`/api/units/${id}/versions/${revision}`),
   unitSiku: (id: string) => request<SikuMatch>(`/api/units/${encodeURIComponent(id)}/siku`),
