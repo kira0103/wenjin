@@ -21,7 +21,9 @@ class QuotesExport(BaseModel):
 
 class UnitBatchExport(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    unit_ids: list[str] = Field(min_length=1, max_length=200)
+    # 一次导出整书全部卷（例如《合璧事類備要》367 卷）是常规操作：
+    # 逐卷生成 docx 并打包的时间约 30 秒，远低于 240 秒的请求超时。
+    unit_ids: list[str] = Field(min_length=1, max_length=5000)
 
 
 def register(app, state, connection):

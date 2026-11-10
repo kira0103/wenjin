@@ -140,5 +140,16 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(empty.status_code, 422)
 
 
+class BatchExportLimitTests(unittest.TestCase):
+    def test_selection_accepts_whole_book_and_rejects_absurd_payload(self):
+        from pydantic import ValidationError
+        from backend.api.exports import UnitBatchExport
+        whole_book = [f'unit-{index}' for index in range(367)]
+        self.assertEqual(len(UnitBatchExport(unit_ids=whole_book).unit_ids), 367)
+        too_many = [f'unit-{index}' for index in range(5001)]
+        with self.assertRaises(ValidationError):
+            UnitBatchExport(unit_ids=too_many)
+
+
 if __name__ == '__main__':
     unittest.main()
